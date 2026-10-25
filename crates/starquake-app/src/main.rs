@@ -18,7 +18,7 @@ use starquake_audio::{
 };
 use starquake_config::AppConfig;
 use starquake_core::{
-    agency_family, build_eew_tts_script, build_record_tts_script, eew_sidebar_entries,
+    LocalHypoEstimate, agency_family, build_eew_tts_script, build_record_tts_script, eew_sidebar_entries,
     cinema_event_key, dedupe_same_eew_events, eew_sidebar_group_key, eew_wave_active_spread,
     is_wave_candidate, max_s_spread_km, origin_is_stale, same_eew_event, should_play_eew_tts,
     AgencyFamily,
@@ -27,6 +27,7 @@ use starquake_core::{
 };
 use std::collections::{HashMap, HashSet};
 use starquake_net::{load_place_fix, spawn_hub_with_assets, NetEvent, NetHub};
+use starquake_hypo::{locate, ArrivalPick, LocateConfig};
 use starquake_travel::{s_wave_still_spreading_to, TravelEngine};
 use starquake_map::{zoom_to_fit_radius_km, BasemapMode, ProjectionMode};
 use starquake_ui::{
@@ -38,7 +39,8 @@ use std::time::Instant;
 use tokio::runtime::Runtime;
 use official_notice::{fetch_notices, OfficialNoticeState, RemoteNotice};
 use update::{
-    AvailableUpdate, StartupUpdateOutcome, apply_and_relaunch, check_latest, download_asset,
+    AvailableUpdate, StartupUpdateOutcome, apply_and_relaunch, check_latest,
+    download_asset_with_progress,
     open_release_page, run_startup_auto_update,
 };
 
@@ -278,6 +280,7 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
     // 启动主窗口前检查更新（复用 update 清单竞速逻辑；确认安装则退出，不进主界面）。
     // GPU 软渲染重试 / 自动化巡检不再弹窗、也不在 splash 后再自动查。
     let mut startup_update_done = force_soft || env_flag("STARQUAKE_AUTOTEST");
+    let mut pending_startup_install: Option<AvailableUpdate> = None;
     if !force_soft && !env_flag("STARQUAKE_AUTOTEST") {
         let dismissed_before = cfg.update.last_dismissed_update_version.clone();
         match run_startup_auto_update(&mut cfg.update, env!("CARGO_PKG_VERSION")) {
@@ -289,6 +292,10 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
                         tracing::warn!("保存已跳过更新版本失败: {e:#}");
                     }
                 }
+            }
+            StartupUpdateOutcome::PendingInstall(info) => {
+                startup_update_done = true;
+                pending_startup_install = Some(info);
             }
         }
     }
@@ -503,8 +510,14 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
                 update_available: None,
                 update_status: String::new(),
                 update_busy: false,
+                update_progress: None,
+                update_progress_rx: None,
+                update_auto_install: pending_startup_install,
+                hypo_first_trigger: std::collections::HashMap::new(),
+                hypo_last_run: Instant::now(),
                 update_checked: startup_update_done,
                 update_check_manual: false,
+
                 official_notices: OfficialNoticeState::load(),
                 notice_rx: None,
                 notice_fetching: false,
@@ -735,6 +748,14 @@ struct StarQuakeApp {
     update_available: Option<AvailableUpdate>,
     update_status: String,
     update_busy: bool,
+    /// 下载进度：(已下载, 总长度)
+    update_progress: Option<(u64, Option<u64>)>,
+    update_progress_rx: Option<mpsc::Receiver<(u64, Option<u64>)>>,
+    /// 启动 MessageBox 确认后，首帧自动开始下载
+    update_auto_install: Option<AvailableUpdate>,
+    /// station id -> first trigger unix sec (for hypo)
+    hypo_first_trigger: std::collections::HashMap<String, f64>,
+    hypo_last_run: Instant,
     update_checked: bool,
     /// 本次检查是否由用户手动触发（启动自动检查无更新时不弹「已是最新」）
     update_check_manual: bool,
@@ -1243,7 +1264,9 @@ impl eframe::App for StarQuakeApp {
         {
             let now = chrono::Utc::now().timestamp_millis();
             self.snap.prune_expired_tsunami(now);
+            self.snap.prune_expired_weather(now);
         }
+        self.tick_local_hypo();
 
         // 默认视角：无预警时始终跟最新速报（新速报强制飞，无视拖拽锁）；有预警则上面 cinema 已跟
         if !self.auto_center_pending && self.started.elapsed().as_secs_f64() >= 2.5 {
@@ -1663,6 +1686,37 @@ impl StarQuakeApp {
         }
     }
 
+
+    fn begin_update_install(&mut self, info: AvailableUpdate) {
+        if self.update_busy {
+            return;
+        }
+        self.update_available = None;
+        self.update_busy = true;
+        self.update_status = "正在下载更新…".into();
+        self.update_progress = Some((0, None));
+        let (tx, rx) = mpsc::channel();
+        let (ptx, prx) = mpsc::channel();
+        self.update_rx = Some(rx);
+        self.update_progress_rx = Some(prx);
+        std::thread::spawn(move || {
+            let progress = move |done: u64, total: Option<u64>| {
+                let _ = ptx.send((done, total));
+            };
+            match download_asset_with_progress(&info, Some(&progress)) {
+                Ok(path) => {
+                    let _ = tx.send(Err("__INSTALLING__".into()));
+                    if let Err(e) = apply_and_relaunch(&path) {
+                        let _ = tx.send(Err(format!("应用更新失败：{e:#}")));
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(format!("下载失败：{e:#}")));
+                }
+            }
+        });
+    }
+
     fn begin_update_check(&mut self, manual: bool) {
         if self.update_busy {
             return;
@@ -1685,9 +1739,22 @@ impl StarQuakeApp {
     }
 
     fn tick_update_check(&mut self, ctx: &egui::Context) {
+        if let Some(info) = self.update_auto_install.take() {
+            if self.cfg.update.auto_install {
+                self.begin_update_install(info);
+            } else {
+                open_release_page(&info.html_url);
+            }
+        }
         // 启动前已检查过则不再自动查；设置里「检查更新」仍走 begin_update_check(true)
         if !self.update_checked && !self.splash.active() && self.cfg.update.check_on_startup {
             self.begin_update_check(false);
+        }
+        if let Some(prx) = self.update_progress_rx.as_ref() {
+            while let Ok(p) = prx.try_recv() {
+                self.update_progress = Some(p);
+                ctx.request_repaint();
+            }
         }
         let Some(rx) = self.update_rx.as_ref() else {
             return;
@@ -1696,6 +1763,8 @@ impl StarQuakeApp {
             Ok(Ok(Some(info))) => {
                 self.update_busy = false;
                 self.update_rx = None;
+                self.update_progress_rx = None;
+                self.update_progress = None;
                 self.update_status.clear();
                 self.update_available = Some(info);
                 ctx.request_repaint();
@@ -1703,6 +1772,8 @@ impl StarQuakeApp {
             Ok(Ok(None)) => {
                 self.update_busy = false;
                 self.update_rx = None;
+                self.update_progress_rx = None;
+                self.update_progress = None;
                 self.update_available = None;
                 // 启动静默：无更新不弹窗；手动检查才提示「已是最新」
                 self.update_status = if self.update_check_manual {
@@ -1713,8 +1784,16 @@ impl StarQuakeApp {
                 ctx.request_repaint();
             }
             Ok(Err(e)) => {
+                if e == "__INSTALLING__" {
+                    self.update_status = "正在安装更新…".into();
+                    self.update_progress = None;
+                    ctx.request_repaint();
+                    return;
+                }
                 self.update_busy = false;
                 self.update_rx = None;
+                self.update_progress_rx = None;
+                self.update_progress = None;
                 if e.contains("更新失败") || e.contains("下载") || e.contains("应用") {
                     self.update_status = e;
                 } else if self.update_check_manual {
@@ -1739,14 +1818,35 @@ impl StarQuakeApp {
             if self.update_status.is_empty() {
                 return;
             }
-            egui::Window::new("StarQuake")
+            egui::Window::new("StarQuake 更新")
                 .id(egui::Id::new("starquake_update_busy"))
                 .collapsible(false)
                 .resizable(false)
-                .anchor(egui::Align2::CENTER_TOP, [0.0, 48.0])
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
-                    ui.label(&self.update_status);
+                    ui.set_min_width(360.0);
+                    ui.label(egui::RichText::new(&self.update_status).size(16.0));
+                    ui.add_space(10.0);
+                    if let Some((done, total)) = self.update_progress {
+                        if let Some(total) = total.filter(|t| *t > 0) {
+                            let frac = (done as f32 / total as f32).clamp(0.0, 1.0);
+                            let bar = egui::ProgressBar::new(frac)
+                                .text(format!("{:.0}%", frac * 100.0));
+                            ui.add(bar);
+                            ui.label(format!(
+                                "{:.1} / {:.1} MB",
+                                done as f64 / 1_048_576.0,
+                                total as f64 / 1_048_576.0
+                            ));
+                        } else {
+                            ui.add(egui::ProgressBar::new(0.0).animate(true));
+                            ui.label(format!("{:.1} MB", done as f64 / 1_048_576.0));
+                        }
+                    } else if self.update_status.contains("安装") {
+                        ui.add(egui::ProgressBar::new(0.0).animate(true));
+                    }
                 });
+            ctx.request_repaint();
             return;
         }
 
@@ -1834,23 +1934,7 @@ impl StarQuakeApp {
                 self.update_available = None;
                 return;
             }
-            self.update_available = None;
-            self.update_busy = true;
-            self.update_status = "正在下载更新…".into();
-            let (tx, rx) = mpsc::channel();
-            self.update_rx = Some(rx);
-            std::thread::spawn(move || {
-                match download_asset(&info) {
-                    Ok(path) => {
-                        if let Err(e) = apply_and_relaunch(&path) {
-                            let _ = tx.send(Err(format!("应用更新失败：{e:#}")));
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Err(format!("下载失败：{e:#}")));
-                    }
-                }
-            });
+            self.begin_update_install(info);
         }
     }
 
@@ -1979,6 +2063,69 @@ impl StarQuakeApp {
         self.prev_health = cur;
     }
 
+
+
+    fn tick_local_hypo(&mut self) {
+        if !self.cfg.ui.show_local_hypo {
+            self.snap.local_hypo = None;
+            return;
+        }
+        let Some(travel) = self.travel.as_ref() else {
+            return;
+        };
+        if self.hypo_last_run.elapsed().as_millis() < 800 {
+            return;
+        }
+        self.hypo_last_run = Instant::now();
+        let now_sec = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
+        // Trigger threshold: instrumental intensity roughly felt
+        const TRIG: f64 = 0.5;
+        let mut alive = std::collections::HashSet::new();
+        for s in &self.snap.stations {
+            if !s.instrumental.is_finite() || s.instrumental < TRIG {
+                continue;
+            }
+            if s.latitude.abs() <= 0.01 && s.longitude.abs() <= 0.01 {
+                continue;
+            }
+            alive.insert(s.id.clone());
+            self.hypo_first_trigger
+                .entry(s.id.clone())
+                .or_insert(now_sec);
+        }
+        self.hypo_first_trigger.retain(|id, _| alive.contains(id));
+        let mut picks: Vec<ArrivalPick> = Vec::new();
+        for s in &self.snap.stations {
+            let Some(&det) = self.hypo_first_trigger.get(&s.id) else {
+                continue;
+            };
+            picks.push(ArrivalPick {
+                id: s.id.clone(),
+                latitude: s.latitude,
+                longitude: s.longitude,
+                detect_sec: det,
+            });
+        }
+        let cfg = LocateConfig::default();
+        if picks.len() < cfg.min_picks {
+            self.snap.local_hypo = None;
+            return;
+        }
+        match locate(travel, &picks, &[], now_sec, &cfg) {
+            Some(est) => {
+                self.snap.local_hypo = Some(LocalHypoEstimate {
+                    latitude: est.latitude,
+                    longitude: est.longitude,
+                    depth_km: est.depth_km,
+                    error_level: est.error_level,
+                    used_stations: est.used_pick_indices.len(),
+                });
+            }
+            None => {
+                self.snap.local_hypo = None;
+            }
+        }
+    }
 
     fn tick_tsunami_audio(&mut self) {
         let key = match self.snap.tsunami.as_ref() {

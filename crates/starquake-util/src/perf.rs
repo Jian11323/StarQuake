@@ -206,7 +206,8 @@ impl MemoryTier {
 /// 瓦片张数：按内存五档；软渲染再压一档（最低 2G）。
 pub fn tile_cache_slots(ram_gb: f64, software_raster: bool) -> usize {
     let tier = MemoryTier::from_ram_gb(ram_gb);
-    let slots = if software_raster {
+    
+    if software_raster {
         match tier {
             MemoryTier::G2 => MemoryTier::G2.tile_slots(),
             MemoryTier::G4 => MemoryTier::G2.tile_slots(),
@@ -216,8 +217,7 @@ pub fn tile_cache_slots(ram_gb: f64, software_raster: bool) -> usize {
         }
     } else {
         tier.tile_slots()
-    };
-    slots
+    }
 }
 
 /// 读取本机内存后给出瓦片张数上限。

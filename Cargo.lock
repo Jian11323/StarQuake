@@ -4470,6 +4470,7 @@ dependencies = [
  "starquake-audio",
  "starquake-config",
  "starquake-core",
+ "starquake-hypo",
  "starquake-map",
  "starquake-net",
  "starquake-travel",

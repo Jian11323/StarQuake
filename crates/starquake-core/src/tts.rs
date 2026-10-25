@@ -90,7 +90,7 @@ fn format_origin_for_tts(origin_ms: i64) -> String {
     // 按东八区读出，便于国内听感
     let sec = origin_ms / 1000 + 8 * 3600;
     let days = sec.div_euclid(86400);
-    let tod = sec.rem_euclid(86400) as i64;
+    let tod = sec.rem_euclid(86400);
     // 1970-01-01 起算的简易公历（足够 TTS；极端历史可不精确）
     let (y, m, d) = civil_from_days(days);
     let hh = tod / 3600;
@@ -199,9 +199,7 @@ pub fn should_play_eew_tts(last: Option<&EewReport>, data: &EewReport) -> bool {
 pub fn build_eew_tts_script(ev: &EewReport) -> String {
     let src = agency_tts_name(&ev.agency.0, true, ev.is_warn);
     let is_jma_eew = agency_family(&ev.agency.0) == AgencyFamily::Jma;
-    let org = if is_jma_eew {
-        src
-    } else if src.contains("预警") {
+    let org = if is_jma_eew || src.contains("预警") {
         src
     } else {
         format!("{src}预警")

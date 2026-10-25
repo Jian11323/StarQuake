@@ -217,6 +217,27 @@ pub fn is_ban_text(text: &str) -> bool {
         || text.contains("黑名单")
 }
 
+pub fn is_auth_error_text(text: &str) -> bool {
+    text.contains("expired_access_token")
+        || text.contains("invalid_api_key")
+        || text.contains("missing_api_key")
+        || text.contains("invalid_token_format")
+        || text.contains("invalid_refresh_token")
+        || text.contains("expired_refresh_token")
+        || text.contains("\"code\":4001")
+        || text.contains("\"code\":4002")
+        || text.contains("\"code\":4003")
+        || text.contains("\"code\":4004")
+        || text.contains("\"code\":4201")
+        || text.contains("\"code\":4202")
+        || text.contains("\"code\": 4001")
+        || text.contains("\"code\": 4002")
+        || text.contains("\"code\": 4003")
+        || text.contains("\"code\": 4004")
+        || text.contains("\"code\": 4201")
+        || text.contains("\"code\": 4202")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,25 +281,4 @@ mod tests {
         assert!(is_ban_text(r#"{"type":"error","message":"您的IP已被封禁，请联系管理员进行处理"}"#));
         assert!(is_auth_error_text(r#"{"type":"error","code":4004,"error":"expired_access_token"}"#));
     }
-}
-
-pub fn is_auth_error_text(text: &str) -> bool {
-    text.contains("expired_access_token")
-        || text.contains("invalid_api_key")
-        || text.contains("missing_api_key")
-        || text.contains("invalid_token_format")
-        || text.contains("invalid_refresh_token")
-        || text.contains("expired_refresh_token")
-        || text.contains("\"code\":4001")
-        || text.contains("\"code\":4002")
-        || text.contains("\"code\":4003")
-        || text.contains("\"code\":4004")
-        || text.contains("\"code\":4201")
-        || text.contains("\"code\":4202")
-        || text.contains("\"code\": 4001")
-        || text.contains("\"code\": 4002")
-        || text.contains("\"code\": 4003")
-        || text.contains("\"code\": 4004")
-        || text.contains("\"code\": 4201")
-        || text.contains("\"code\": 4202")
 }

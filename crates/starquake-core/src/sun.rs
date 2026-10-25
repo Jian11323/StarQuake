@@ -95,8 +95,8 @@ pub fn sunrise_sunset_local_hm(lat_deg: f64, lon_deg: f64, unix_ms: i64) -> Opti
     }
     let rise_hm = rise.map(|ms| {
         let local = ms + offset_min as i64 * 60_000;
-        let mins = ((local.rem_euclid(86_400_000)) / 60_000) as u32;
-        mins
+        
+        ((local.rem_euclid(86_400_000)) / 60_000) as u32
     })?;
     let set_hm = set.map(|ms| {
         let local = ms + offset_min as i64 * 60_000;

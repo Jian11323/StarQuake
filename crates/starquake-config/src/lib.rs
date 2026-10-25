@@ -138,9 +138,18 @@ pub struct UiConfig {
     /// 地图绘制火山三角标，并在火山列表显示图标
     #[serde(default = "default_true")]
     pub show_volcanoes: bool,
-    /// 地图绘制气象预警图标
+    /// 地图右上气象悬浮卡片（不再地图打点）
     #[serde(default = "default_true")]
     pub show_weather: bool,
+    /// 本地测站到时震源推算（不含检知；需足够触发站）
+    #[serde(default = "default_true")]
+    pub show_local_hypo: bool,
+    /// 气象侧栏展示：`list` 列表 / `card` 地图悬浮卡片
+    #[serde(default = "default_weather_display_mode")]
+    pub weather_display_mode: String,
+    /// 气象预警地名筛选（侧栏输入，空为不过滤）
+    #[serde(default)]
+    pub weather_location_filter: String,
     /// 已下线：烈度速报不再侧栏/地图展示；保留字段兼容旧 settings.json
     #[serde(default = "default_false")]
     pub show_cenc_int: bool,
@@ -1064,6 +1073,10 @@ fn default_precip_url() -> String {
 fn default_weather_ws() -> String {
     "wss://api.sismotide.top/weather".into()
 }
+
+fn default_weather_display_mode() -> String {
+    "card".into()
+}
 fn default_cenc_int_http() -> String {
     "https://api-cencint-public.nowquake.cn".into()
 }
@@ -1114,6 +1127,9 @@ impl Default for AppConfig {
                 show_legend: true,
                 show_volcanoes: true,
                 show_weather: true,
+                show_local_hypo: true,
+                weather_display_mode: default_weather_display_mode(),
+                weather_location_filter: String::new(),
                 show_cenc_int: false,
                 show_typhoons: true,
                 show_faults: false,
@@ -1793,6 +1809,29 @@ fn merge_json(base: serde_json::Value, overlay: serde_json::Value) -> serde_json
     }
 }
 
+fn merge_toml(base: toml::Value, overlay: toml::Value) -> toml::Value {
+    match (base, overlay) {
+        (toml::Value::Table(mut a), toml::Value::Table(b)) => {
+            for (k, v) in b {
+                match a.remove(&k) {
+                    Some(prev) => {
+                        a.insert(k, merge_toml(prev, v));
+                    }
+                    None => {
+                        a.insert(k, v);
+                    }
+                }
+            }
+            toml::Value::Table(a)
+        }
+        (_, overlay) => overlay,
+    }
+}
+
+fn tracing_log(msg: &str) {
+    eprintln!("{msg}");
+}
+
 #[cfg(test)]
 mod fps_preset_tests {
     use super::{recommend_target_fps, snap_target_fps, snap_target_fps_at_most, TARGET_FPS_PRESETS};
@@ -1825,27 +1864,4 @@ mod fps_preset_tests {
         assert!(p.wave_repaint_ms() >= 100);
         assert!(p.soft_repaint_ms() >= 400);
     }
-}
-
-fn merge_toml(base: toml::Value, overlay: toml::Value) -> toml::Value {
-    match (base, overlay) {
-        (toml::Value::Table(mut a), toml::Value::Table(b)) => {
-            for (k, v) in b {
-                match a.remove(&k) {
-                    Some(prev) => {
-                        a.insert(k, merge_toml(prev, v));
-                    }
-                    None => {
-                        a.insert(k, v);
-                    }
-                }
-            }
-            toml::Value::Table(a)
-        }
-        (_, overlay) => overlay,
-    }
-}
-
-fn tracing_log(msg: &str) {
-    eprintln!("{msg}");
 }

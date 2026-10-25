@@ -74,7 +74,7 @@ impl TravelTable {
         Ok(t)
     }
 
-    fn grid<'a>(&'a self, wave: Wave) -> &'a [Vec<f64>] {
+    fn grid(&self, wave: Wave) -> &[Vec<f64>] {
         match wave {
             Wave::P => &self.p_times_s,
             Wave::S => &self.s_times_s,

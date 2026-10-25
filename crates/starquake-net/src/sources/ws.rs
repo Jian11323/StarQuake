@@ -85,7 +85,7 @@ where
                     );
                     emit_health(&tx, opts.source, HealthStatus::Abnormal);
                     backoff = backoff.max(15);
-                    let jitter_ms = (backoff.saturating_mul(137) % 800) as u64;
+                    let jitter_ms = backoff.saturating_mul(137) % 800;
                     sleep(Duration::from_secs(backoff) + Duration::from_millis(jitter_ms)).await;
                     backoff = (backoff * 2).min(opts.backoff_max_secs.max(60));
                     continue;
@@ -138,7 +138,7 @@ where
                 };
                 let mut last_msg = Instant::now();
                 // 首包宽限：台账大帧可能较慢（对齐 EEWCN awaitFirstMessage）
-                let first_grace = Duration::from_secs(opts.stale_secs.max(20).min(90));
+                let first_grace = Duration::from_secs(opts.stale_secs.clamp(20, 90));
                 let opened_at = Instant::now();
                 let mut got_first = false;
                 loop {
@@ -276,7 +276,7 @@ where
             }
         }
 
-        let jitter_ms = (backoff.saturating_mul(137) % 800) as u64;
+        let jitter_ms = backoff.saturating_mul(137) % 800;
         sleep(Duration::from_secs(backoff) + Duration::from_millis(jitter_ms)).await;
         backoff = (backoff * 2).min(opts.backoff_max_secs.max(60));
     }

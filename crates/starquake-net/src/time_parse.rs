@@ -51,7 +51,7 @@ pub fn format_time_text(origin_ms: i64) -> String {
     let Some(dt) = DateTime::from_timestamp_millis(origin_ms) else {
         return "—".into();
     };
-    let cst = FixedOffset::east_opt(8 * 3600).unwrap();
+    let cst = starquake_core::cst();
     dt.with_timezone(&cst)
         .format("%Y-%m-%d %H:%M:%S")
         .to_string()

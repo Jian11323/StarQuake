@@ -32,6 +32,8 @@ pub enum NetEvent {
     Volcano(VolcanoNotice),
     /// 中央台气象预警
     Weather(WeatherAlert),
+    /// 气象预警列表（整表同步，仅保留仍生效条目）
+    WeatherList(Vec<WeatherAlert>),
     /// CENC 烈度速报（单条，含测站时覆盖）
     CencInt(CencIntEvent),
     /// CENC 烈度速报冷启动列表

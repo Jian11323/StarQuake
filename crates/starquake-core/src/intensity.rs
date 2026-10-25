@@ -7,8 +7,7 @@ pub fn jma_shindo_level(text: &str) -> u8 {
     let t = text.trim();
     let t = t
         .replace('弱', "-")
-        .replace('強', "+")
-        .replace('强', "+");
+        .replace(['強', '强'], "+");
     match t.as_str() {
         "0" | "０" => 0,
         "1" | "１" => 1,
@@ -166,6 +165,18 @@ pub fn cn_intensity_text(level: u8) -> &'static str {
         11 => "Ⅺ",
         _ => "Ⅻ",
     }
+}
+
+/// 中国烈度档位 0 且侧栏应显示「—」（无上游、无有效估算文案）。
+pub fn cn_intensity_display_unknown(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() || t == "—" || t == "-" {
+        return true;
+    }
+    matches!(
+        t,
+        "不明" | "?" | "調査中" | "调查中" | "なし" | "无" | "N/A" | "n/a" | "null" | "0" | "０"
+    )
 }
 
 /// 按界面「烈度标度」偏好重映射展示（`auto` 保持原文；`jma` / `cn` 强制标度）。

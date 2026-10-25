@@ -7,6 +7,7 @@ mod settings;
 mod splash;
 mod theme;
 mod weather_icons;
+mod weather_panel;
 
 pub use brand::{app_icon_data, logo_texture, APP_DISPLAY_NAME};
 pub use i18n::{set_lang_from_config, Lang};
@@ -22,7 +23,7 @@ use starquake_core::{
     prefer_intensity_scale, same_eew_event, sunrise_sunset_local_hm, AppSnapshot, EewReport,
     IntensityKind, ListSelection, OverlayMode, SidebarTab, UserNotice, WeatherAlert,
 };
-use weather_icons::{weather_level_color, WeatherIconCache};
+use weather_icons::WeatherIconCache;
 use starquake_core::palette::{cn_intensity_rgb, jma_shindo_rgb};
 use starquake_map::{
     zoom_to_fit_radius_km, BasemapLoadState, BasemapMode, MapUiResult, MapViewport,
@@ -113,6 +114,10 @@ pub struct MainShell {
     sidebar_detach_guard_until: Option<Instant>,
     /// 浮窗几何是否已下发过一次（之后勿每帧 with_position/size，否则高频抖动）
     sidebar_float_geom_applied: bool,
+    /// 气象悬浮卡片当前索引（过滤后序号）
+    weather_card_index: usize,
+    /// 气象卡片上次自动轮播时刻
+    weather_card_rotated_at: Option<std::time::Instant>,
 }
 
 impl Default for MainShell {
@@ -135,6 +140,8 @@ impl Default for MainShell {
             sidebar_geom_dirty_at: None,
             sidebar_detach_guard_until: None,
             sidebar_float_geom_applied: false,
+            weather_card_index: 0,
+            weather_card_rotated_at: None,
         }
     }
 }
@@ -219,6 +226,7 @@ impl MainShell {
         let sample_elapsed = self.map_elapsed % 120.0;
         let mut map_ui = MapUiResult::default();
         let mut persist_cfg = false;
+        let mut wx_dirty = false;
 
         // 波圈动画按档位降频，避免 uncapped request_repaint 拉高 CPU
         if show_waves && !wave_owned.is_empty() {
@@ -302,6 +310,9 @@ impl MainShell {
                             show_volcanoes,
                             source_enabled,
                             true,
+                            &mut cfg.ui.weather_display_mode,
+                            &mut cfg.ui.weather_location_filter,
+                            &mut wx_dirty,
                         );
                     });
                 let (w, h, x, y) = vp_ctx.input(|i| {
@@ -391,6 +402,9 @@ impl MainShell {
                         show_volcanoes,
                         source_enabled,
                         false,
+                        &mut cfg.ui.weather_display_mode,
+                        &mut cfg.ui.weather_location_filter,
+                        &mut wx_dirty,
                     );
                 });
             let cur_h = panel_resp.response.rect.height();
@@ -430,6 +444,9 @@ impl MainShell {
                         show_volcanoes,
                         source_enabled,
                         false,
+                        &mut cfg.ui.weather_display_mode,
+                        &mut cfg.ui.weather_location_filter,
+                        &mut wx_dirty,
                     );
                 });
             // 向右拖窄：拖动中指针意图宽度过低，或松手时实际宽度过低 → 关闭
@@ -510,11 +527,8 @@ impl MainShell {
                 } else {
                     &[]
                 };
-                let weather_for_map = if cfg.ui.show_weather {
-                    snap.weather.as_slice()
-                } else {
-                    &[]
-                };
+                // 气象不再地图打点（易与测站混淆）；悬浮卡片由 show_weather + 卡片模式控制
+                let weather_for_map: &[WeatherAlert] = &[];
                 let show_typhoons_map =
                     cfg.ui.show_typhoons && cfg.sources.typhoon.enabled;
                 let radars: Vec<_> = snap.active_radars().collect();
@@ -540,6 +554,11 @@ impl MainShell {
                     selected_volcano,
                     weather_for_map,
                     selected_weather,
+                    if cfg.ui.show_local_hypo {
+                        snap.local_hypo.as_ref()
+                    } else {
+                        None
+                    },
                     None,
                     if show_typhoons_map {
                         snap.typhoons.as_slice()
@@ -639,6 +658,15 @@ impl MainShell {
                     station_card_bottom.bottom_y,
                     panel_z,
                 );
+                // typhoon card approx height for weather stack anchor
+                let typhoon_bottom_y = if show_typhoons_map && !snap.typhoons.is_empty()
+                    || map_ui.typhoon_hover.is_some()
+                {
+                    // header+body ~ 26+90 at zoom1; use measured offset from station bottom
+                    station_card_bottom.bottom_y + 14.0 * panel_z + 120.0 * panel_z
+                } else {
+                    station_card_bottom.bottom_y
+                };
                 if let Some(net) = station_card_bottom.clicked {
                     if let Some((lon, lat, zoom)) = snap.focus_max_station(net) {
                         self.map.fly_to_centered(lon, lat, Some(zoom.clamp(7.5, 11.0)), 0.4);
@@ -649,6 +677,67 @@ impl MainShell {
                     self.map.user_camera_override = false;
                     self.map.last_user_camera_at = None;
                     self.map.fly_to_centered(lon, lat, Some(z), 1.0);
+                }
+                // 气象悬浮卡片：卡片模式 + 设置开启时显示（不再在地图打测站式色点）
+                if cfg.ui.show_weather
+                    && weather_panel::weather_is_card_mode(&cfg.ui.weather_display_mode)
+                {
+                    let stack_right = weather_panel::map_overlay_stack_right(
+                        map_rect,
+                        panel_z,
+                        None,
+                    );
+                    let stack = weather_panel::MapOverlayStack {
+                        map_rect,
+                        stack_right,
+                        zoom: panel_z,
+                    };
+                    // 30s auto rotate
+                    let filtered = weather_panel::weather_filtered_indices(
+                        snap.weather.as_slice(),
+                        &cfg.ui.weather_location_filter,
+                    );
+                    if !filtered.is_empty() {
+                        let now = std::time::Instant::now();
+                        let due = self
+                            .weather_card_rotated_at
+                            .map(|t0| now.duration_since(t0).as_secs() >= weather_panel::WEATHER_CARD_AUTO_SECS)
+                            .unwrap_or(true);
+                        if due {
+                            if self.weather_card_rotated_at.is_some() {
+                                self.weather_card_index =
+                                    (self.weather_card_index + 1) % filtered.len();
+                            }
+                            self.weather_card_rotated_at = Some(now);
+                        }
+                        if self.weather_card_index >= filtered.len() {
+                            self.weather_card_index = 0;
+                        }
+                        let layout = weather_panel::draw_weather_floating_card(
+                            ui,
+                            &p,
+                            weather_panel::WeatherCardDraw {
+                                alerts: snap.weather.as_slice(),
+                                filter: &cfg.ui.weather_location_filter,
+                                card_index: &mut self.weather_card_index,
+                                weather_icons: &mut self.weather_icons,
+                                anchor_top_y: typhoon_bottom_y,
+                                stack,
+                            },
+                        );
+                        if let Some((lon, lat, z)) = layout.fly_to {
+                            self.map.fly_to_centered(lon, lat, Some(z), 0.7);
+                            self.map.mark_user_camera();
+                        }
+                        if let Some(idx) = layout.select_index {
+                            snap.selection = Some(ListSelection {
+                                tab: SidebarTab::Weather,
+                                index: idx,
+                            });
+                            self.weather_card_rotated_at = Some(std::time::Instant::now());
+                        }
+                        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+                    }
                 }
                 if cfg.ui.show_legend {
                     draw_legend_bar(ui, &p, 1.0);
@@ -903,6 +992,10 @@ impl MainShell {
             cenc_int_enabled: cfg.sources.cenc_int.enabled,
         };
         self.draw_user_notice(ctx);
+        if wx_dirty {
+            persist_cfg = true;
+        }
+
         let settings_action = self.settings.ui(ctx, cfg, &health);
         (settings_action, persist_cfg)
     }
@@ -2357,6 +2450,9 @@ fn draw_sidebar(
     show_volcano_icons: bool,
     source_enabled: [bool; 5],
     detached: bool,
+    weather_display_mode: &mut String,
+    weather_location_filter: &mut String,
+    weather_cfg_dirty: &mut bool,
 ) -> Option<SideAction> {
     let mut clicked = None;
     // eewcn 侧栏：固定字号；宽度变化只影响换行/行高，不缩放 UI
@@ -2680,6 +2776,18 @@ fn draw_sidebar(
                                 }
                             }
                             SidebarTab::Weather => {
+                                weather_panel::draw_weather_sidebar_controls(
+                                    ui,
+                                    p,
+                                    weather_display_mode,
+                                    weather_location_filter,
+                                    weather_cfg_dirty,
+                                    z,
+                                );
+                                let filtered = weather_panel::weather_filtered_indices(
+                                    snap.weather.as_slice(),
+                                    weather_location_filter,
+                                );
                                 if snap.weather.is_empty() {
                                     empty_hint(
                                         ui,
@@ -2688,25 +2796,43 @@ fn draw_sidebar(
                                         crate::i18n::t("启用气象源并登录 Jian 令牌后，中央台预警会出现在此列表。"),
                                         z,
                                     );
-                                }
-                                weather_icons.poll(ui.ctx());
-                                for (i, w) in snap.weather.iter().enumerate() {
-                                    let selected = sel
-                                        == Some(ListSelection {
-                                            tab: SidebarTab::Weather,
-                                            index: i,
-                                        });
-                                    let icon = weather_icons.get(ui.ctx(), &w.icon_type);
-                                    if weather_list_row(
+                                } else if filtered.is_empty() {
+                                    empty_hint(
                                         ui,
                                         p,
-                                        w,
-                                        icon.as_ref(),
-                                        selected,
-                                        egui::Id::new(("wx", i)),
+                                        crate::i18n::t("无匹配预警"),
+                                        crate::i18n::t("试试缩短地名筛选关键词。"),
                                         z,
-                                    ) {
-                                        clicked = Some(SideAction::List(SidebarTab::Weather, i));
+                                    );
+                                } else if weather_panel::weather_is_card_mode(weather_display_mode) {
+                                    ui.label(
+                                        RichText::new(crate::i18n::t(
+                                            "卡片模式：地图右上台风卡片下方显示气象悬浮卡片，每 30 秒自动轮播，也可点击序号切换。",
+                                        ))
+                                        .size(12.0 * z)
+                                        .color(p.text_dim),
+                                    );
+                                } else {
+                                    weather_icons.poll(ui.ctx());
+                                    for i in filtered {
+                                        let w = &snap.weather[i];
+                                        let selected = sel
+                                            == Some(ListSelection {
+                                                tab: SidebarTab::Weather,
+                                                index: i,
+                                            });
+                                        let icon = weather_icons.get(ui.ctx(), &w.icon_type);
+                                        if weather_panel::weather_list_row(
+                                            ui,
+                                            p,
+                                            w,
+                                            icon.as_ref(),
+                                            selected,
+                                            egui::Id::new(("wx", i)),
+                                            z,
+                                        ) {
+                                            clicked = Some(SideAction::List(SidebarTab::Weather, i));
+                                        }
                                     }
                                 }
                             }
@@ -2789,142 +2915,6 @@ fn volcano_list_headline(name: &str, title: &str) -> String {
         }
     } else {
         format!("{name}\u{3000}{title}")
-    }
-}
-
-/// 气象侧栏行：左图标，右三行 headline / 省市区 / description。
-fn weather_list_row(
-    ui: &mut Ui,
-    p: &ThemePalette,
-    alert: &WeatherAlert,
-    icon: Option<&egui::TextureHandle>,
-    selected: bool,
-    id: egui::Id,
-    z: f32,
-) -> bool {
-    let mut clicked = false;
-    let bg = if selected {
-        p.row_selected
-    } else {
-        Color32::TRANSPARENT
-    };
-    let headline = weather_headline(alert);
-    let region = weather_region_line(alert);
-    let desc = weather_desc_preview(alert.description.trim());
-    let icon_sz = Vec2::splat(42.0 * z);
-    let level = weather_level_color(&alert.icon_type);
-
-    let resp = Frame::NONE
-        .fill(bg)
-        .inner_margin(margin_xy(8.0 * z, 7.0 * z))
-        .corner_radius(8.0 * z)
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.horizontal(|ui| {
-                // 左：中央台图标；未就绪时用等级色块占位
-                let (icon_r, painter) = ui.allocate_painter(icon_sz, Sense::hover());
-                if let Some(tex) = icon {
-                    painter.image(
-                        tex.id(),
-                        icon_r.rect,
-                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                        Color32::WHITE,
-                    );
-                } else {
-                    painter.rect_filled(icon_r.rect, 6.0 * z, level);
-                    painter.rect_stroke(
-                        icon_r.rect,
-                        6.0 * z,
-                        Stroke::new(1.0_f32 * z, p.panel_border),
-                        egui::StrokeKind::Inside,
-                    );
-                }
-
-                ui.add_space(8.0 * z);
-                ui.vertical(|ui| {
-                    let max_w = (ui.available_width() - 4.0 * z).max(40.0 * z);
-                    ui.set_max_width(max_w);
-                    if !headline.is_empty() {
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(&headline).strong().size(13.5 * z).color(p.text),
-                            )
-                            .truncate(),
-                        );
-                    }
-                    if !region.is_empty() {
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(&region).size(12.5 * z).color(p.text_dim),
-                            )
-                            .truncate(),
-                        );
-                    }
-                    if !desc.is_empty() {
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(&desc).size(12.0 * z).color(p.text_muted),
-                            )
-                            .truncate(),
-                        );
-                    }
-                });
-            });
-        })
-        .response;
-
-    let full = ui
-        .interact(resp.rect, id, Sense::click())
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
-    if full.hovered() && !selected {
-        ui.painter().rect_stroke(
-            resp.rect,
-            8.0 * z,
-            Stroke::new(1.0_f32 * z, p.panel_border),
-            egui::StrokeKind::Outside,
-        );
-    }
-    if full.clicked() {
-        clicked = true;
-    }
-    ui.add_space(3.0 * z);
-    clicked
-}
-
-fn weather_headline(alert: &WeatherAlert) -> String {
-    let h = alert.headline.trim();
-    if !h.is_empty() {
-        return h.to_string();
-    }
-    alert.title.trim().to_string()
-}
-
-fn weather_region_line(alert: &WeatherAlert) -> String {
-    [
-        alert.province.trim(),
-        alert.city.trim(),
-        alert.district.trim(),
-    ]
-    .into_iter()
-    .filter(|s| !s.is_empty())
-    .collect::<Vec<_>>()
-    .join("\u{ff0c}")
-}
-
-fn weather_desc_preview(raw: &str) -> String {
-    let t = raw.trim();
-    if t.is_empty() {
-        return String::new();
-    }
-    // 侧栏单行预览，过长截断
-    const MAX_CHARS: usize = 72;
-    let count = t.chars().count();
-    if count <= MAX_CHARS {
-        t.to_string()
-    } else {
-        let mut s: String = t.chars().take(MAX_CHARS).collect();
-        s.push('\u{2026}');
-        s
     }
 }
 

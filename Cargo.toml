@@ -17,7 +17,7 @@ default-members = ["crates/starquake-app"]
 exclude = ["tools/gen_brand_icon"]
 
 [workspace.package]
-version = "2.3.2-beta"
+version = "2.3.3-beta"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Jian11323"]

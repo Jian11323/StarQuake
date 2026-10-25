@@ -89,7 +89,7 @@ pub fn spawn(tx: NetTx, cfg: CencIntSourceConfig) -> Vec<JoinHandle<()>> {
                 // 服务端约 60s 心跳
                 stale_secs: 150,
             },
-            |tx, text| ingest_cenc_int_frame(tx, text),
+            ingest_cenc_int_frame,
         )
         .await;
     })]
@@ -108,9 +108,7 @@ pub fn ingest_cenc_int_frame(tx: &NetTx, text: &str) {
         return;
     }
     // WsData: type=data + EventDetail 字段同级
-    let data = if typ == "data" {
-        &v
-    } else if v.get("eq_id").is_some() {
+    let data = if typ == "data" || v.get("eq_id").is_some() {
         &v
     } else {
         return;
@@ -231,10 +229,9 @@ fn opt_f64(v: &Value, key: &str) -> Option<f64> {
     let x = v.get(key)?;
     let n = if let Some(f) = x.as_f64() {
         f
-    } else if let Some(s) = x.as_str() {
-        s.trim().parse().ok()?
     } else {
-        return None;
+        let s = x.as_str()?;
+        s.trim().parse().ok()?
     };
     if n.is_finite() {
         Some(n)

@@ -84,8 +84,6 @@ fn intel_core_ultra(n: &str) -> Option<TierHit> {
         9
     } else if n.contains("ultra 7") {
         7
-    } else if n.contains("ultra 5") {
-        5
     } else {
         5
     };

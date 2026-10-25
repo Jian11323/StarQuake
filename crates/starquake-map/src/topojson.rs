@@ -3,6 +3,10 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+type PolyRing = Vec<[f32; 2]>;
+type PolyWithHoles = (PolyRing, Vec<PolyRing>);
+type NamedPolyWithHoles = (String, PolyRing, Vec<PolyRing>);
+
 #[derive(Deserialize)]
 struct Topology {
     arcs: Vec<Vec<[i64; 2]>>,
@@ -44,7 +48,7 @@ struct TopoProps {
 /// 解析要石风格 TopoJSON，返回 `(exterior, holes)[]`，坐标为经纬。
 pub fn load_region_polygons(
     text: &str,
-) -> Result<Vec<(Vec<[f32; 2]>, Vec<Vec<[f32; 2]>>)>, String> {
+) -> Result<Vec<PolyWithHoles>, String> {
     Ok(load_named_region_polygons(text)?
         .into_iter()
         .map(|(_, exterior, holes)| (exterior, holes))
@@ -55,7 +59,7 @@ pub fn load_region_polygons(
 /// 返回 `(name, exterior, holes)`；无名几何 `name` 为空串。
 pub fn load_named_region_polygons(
     text: &str,
-) -> Result<Vec<(String, Vec<[f32; 2]>, Vec<Vec<[f32; 2]>>)>, String> {
+) -> Result<Vec<NamedPolyWithHoles>, String> {
     let topo: Topology = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for geom in &topo.objects.region.geometries {
@@ -93,7 +97,7 @@ pub fn load_named_region_polygons(
 fn polygon_from_arcs(
     arcs: &Value,
     topo: &Topology,
-) -> Option<(Vec<[f32; 2]>, Vec<Vec<[f32; 2]>>)> {
+) -> Option<PolyWithHoles> {
     let rings = arcs.as_array()?;
     if rings.is_empty() {
         return None;

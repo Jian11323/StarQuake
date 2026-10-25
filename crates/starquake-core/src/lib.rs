@@ -5,6 +5,7 @@ pub mod estimate;
 pub mod intensity;
 pub mod palette;
 pub mod sun;
+pub mod timezone;
 pub mod tts;
 
 use serde::{Deserialize, Serialize};
@@ -21,11 +22,12 @@ pub use estimate::{
     hypocentral_km, intensity_radius_km, intensity_rings,
 };
 pub use intensity::{
-    cn_intensity_level, cn_intensity_text, instrumental_display_text, instrumental_half_step_text,
-    intensity_kind_for_agency,
+    cn_intensity_display_unknown, cn_intensity_level, cn_intensity_text,
+    instrumental_display_text, instrumental_half_step_text, intensity_kind_for_agency,
     jma_from_instrumental, jma_shindo_level, jma_shindo_text, prefer_intensity_scale,
 };
 pub use palette::{instrumental_band_level, instrumental_band_rgb, instrumental_rgb};
+pub use timezone::{cst, jst};
 pub use sun::{
     format_hm_minutes, is_night, solar_altitude_deg, sun_geometry, sunrise_sunset_local_hm,
     terminator_lon_at_lat, UserNotice, UserNoticeKind,
@@ -557,10 +559,8 @@ pub fn typhoon_max_wind_radius_km(tf: &TyphoonInfo) -> f64 {
         return 0.0;
     };
     let mut max_r = 0.0_f64;
-    for q in [last.radius7, last.radius10, last.radius12] {
-        if let Some(q) = q {
-            max_r = max_r.max(q.max_km());
-        }
+    for q in [last.radius7, last.radius10, last.radius12].into_iter().flatten() {
+        max_r = max_r.max(q.max_km());
     }
     max_r
 }
@@ -655,6 +655,44 @@ pub struct WeatherAlert {
     /// 排序用：解析 origin_time 失败则为 0
     #[serde(default)]
     pub origin_ms: i64,
+}
+
+impl WeatherAlert {
+    /// `relieveTime` 解析为毫秒（UTC+8）；无法解析则 None。
+    pub fn relieve_ms(&self) -> Option<i64> {
+        self.relieve_time
+            .as_deref()
+            .and_then(parse_weather_cst_time_ms)
+    }
+
+    /// 是否仍在生效：`relieveTime` 已到则 false；无解除时间则视为仍生效。
+    pub fn is_active_at(&self, now_ms: i64) -> bool {
+        match self.relieve_ms() {
+            Some(rt) => now_ms < rt,
+            None => true,
+        }
+    }
+}
+
+/// 气象时间字符串（UTC+8）：`YYYY/MM/DD HH:mm` 等。
+pub fn parse_weather_cst_time_ms(s: &str) -> Option<i64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    use chrono::{FixedOffset, NaiveDateTime, TimeZone};
+    for fmt in [
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+    ] {
+        if let Ok(ndt) = NaiveDateTime::parse_from_str(s, fmt) {
+            let cst = FixedOffset::east_opt(8 * 3600)?;
+            return Some(cst.from_local_datetime(&ndt).single()?.timestamp_millis());
+        }
+    }
+    None
 }
 
 /// CENC 烈度速报计测台站（NowQuake）；经纬仅供投影，UI 不展示明文坐标。
@@ -791,6 +829,17 @@ pub enum OverlayMode {
     MarkerOnly,
 }
 
+
+/// 本地测站到时推算的震源（仅展示；非官方预警）。
+#[derive(Debug, Clone, Copy)]
+pub struct LocalHypoEstimate {
+    pub latitude: f64,
+    pub longitude: f64,
+    pub depth_km: f64,
+    pub error_level: f64,
+    pub used_stations: usize,
+}
+
 /// UI 用快照
 #[derive(Debug, Clone)]
 pub struct AppSnapshot {
@@ -839,6 +888,8 @@ pub struct AppSnapshot {
     pub pending_typhoon_hint: bool,
     /// 各测站网最近一帧到达时刻 unix ms（kmoni/snet/kma）
     pub station_updated_ms: std::collections::HashMap<String, i64>,
+    /// 本地测站推算震源（无解则 None）
+    pub local_hypo: Option<LocalHypoEstimate>,
     /// 新速报写入后待主循环飞跃的 (lon, lat, zoom)；take 后清空
     pub pending_record_fly: Option<(f64, f64, f64)>,
     /// 待朗读速报（预警中不跳转时仍可 TTS；主循环 take）
@@ -1043,6 +1094,7 @@ impl AppSnapshot {
             pending_typhoon_fly: None,
             pending_typhoon_hint: false,
             station_updated_ms: std::collections::HashMap::new(),
+            local_hypo: None,
             pending_record_fly: None,
             pending_tts_record: None,
             wave_spread_km: Vec::new(),
@@ -1136,6 +1188,7 @@ impl AppSnapshot {
             pending_typhoon_fly: None,
             pending_typhoon_hint: false,
             station_updated_ms: std::collections::HashMap::new(),
+            local_hypo: None,
             pending_record_fly: None,
             pending_tts_record: None,
             wave_spread_km: Vec::new(),
@@ -1355,9 +1408,9 @@ impl AppSnapshot {
                 || (cur.magnitude_unknown && !record.magnitude_unknown);
             let prefer_new = if auto_to_final || detail_upgrade {
                 true
-            } else if !cur.is_auto && record.is_auto {
-                false
-            } else if !cur.hypocenter_unknown && record.hypocenter_unknown {
+            } else if (!cur.is_auto && record.is_auto)
+                || (!cur.hypocenter_unknown && record.hypocenter_unknown)
+            {
                 false
             } else {
                 let pn = eew_feed_priority(&record.agency.0);
@@ -1495,32 +1548,49 @@ impl AppSnapshot {
             return;
         }
         self.volcanoes.push(notice);
-        self.volcanoes.sort_by(|a, b| b.issued_ms.cmp(&a.issued_ms));
+        self.volcanoes.sort_by_key(|a| std::cmp::Reverse(a.issued_ms));
         if self.volcanoes.len() > 40 {
             self.volcanoes.truncate(40);
         }
     }
 
     /// 插入/更新气象预警（按 id）；新→旧，上限 100。
+    /// 已过 `relieveTime` 的条目不入库，若已存在则移除。
     pub fn upsert_weather(&mut self, alert: WeatherAlert) {
+        let now_ms = wall_clock_ms();
+        if !alert.is_active_at(now_ms) {
+            self.weather.retain(|w| w.id != alert.id);
+            return;
+        }
         if let Some(i) = self.weather.iter().position(|w| w.id == alert.id) {
             self.weather[i] = alert;
         } else {
             self.weather.push(alert);
         }
-        self.weather.sort_by(|a, b| b.origin_ms.cmp(&a.origin_ms));
+        self.weather.sort_by_key(|a| std::cmp::Reverse(a.origin_ms));
         if self.weather.len() > 100 {
             self.weather.truncate(100);
         }
     }
 
-    /// 整表替换气象预警（冷启动少见；一般用 upsert）。
+    /// 整表替换气象预警（冷启动 / 列表同步）；仅保留仍生效条目。
     pub fn replace_weather(&mut self, list: Vec<WeatherAlert>) {
-        self.weather = list;
-        self.weather.sort_by(|a, b| b.origin_ms.cmp(&a.origin_ms));
+        let now_ms = wall_clock_ms();
+        self.weather = list
+            .into_iter()
+            .filter(|a| a.is_active_at(now_ms))
+            .collect();
+        self.weather.sort_by_key(|a| std::cmp::Reverse(a.origin_ms));
         if self.weather.len() > 100 {
             self.weather.truncate(100);
         }
+    }
+
+    /// 清除已过 `relieveTime` 的气象预警；返回是否有移除。
+    pub fn prune_expired_weather(&mut self, now_ms: i64) -> bool {
+        let before = self.weather.len();
+        self.weather.retain(|w| w.is_active_at(now_ms));
+        before != self.weather.len()
     }
 
     /// 插入/更新烈度速报（按 eq_id）；有 stations 的覆盖无 stations 的；新→旧，上限 50。
@@ -1538,7 +1608,7 @@ impl AppSnapshot {
         } else {
             self.cenc_int.push(event);
         }
-        self.cenc_int.sort_by(|a, b| b.happen_ms.cmp(&a.happen_ms));
+        self.cenc_int.sort_by_key(|a| std::cmp::Reverse(a.happen_ms));
         if self.cenc_int.len() > 50 {
             self.cenc_int.truncate(50);
         }
@@ -1901,6 +1971,13 @@ fn records_content_equivalent(a: &EqRecord, b: &EqRecord) -> bool {
 /// 发震时刻相对现在超过此年龄则视为过期（防 API 推送陈旧预警/速报）。
 pub const ORIGIN_STALE_MAX_AGE_MS: i64 = 10 * 60 * 1000;
 
+fn wall_clock_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// `origin_ms <= 0`（未知）不判过期；已知且年龄超过 [`ORIGIN_STALE_MAX_AGE_MS`] 则为过期。
 pub fn origin_is_stale(origin_ms: i64) -> bool {
     if origin_ms <= 0 {
@@ -2098,11 +2175,10 @@ fn prune_eew_list(list: &mut Vec<EewReport>, max_age_ms: i64, max_len: usize) {
         let mut out = Vec::with_capacity(max_len);
         for e in list.drain(..) {
             let key = (e.agency.0.clone(), e.event_id.clone());
-            if protected.contains(&key) || out.len() < max_len {
-                if out.len() < max_len || protected.contains(&key) {
+            if (protected.contains(&key) || out.len() < max_len)
+                && (out.len() < max_len || protected.contains(&key)) {
                     out.push(e);
                 }
-            }
         }
         // 若 protected 把长度顶破，再按新→旧截到 max_len（仍尽量留 protected）
         if out.len() > max_len {
@@ -2136,7 +2212,7 @@ fn sort_eew_newest_first(list: &mut [EewReport]) {
 }
 
 fn sort_records_newest_first(list: &mut [EqRecord]) {
-    list.sort_by(|a, b| recency_ms(b.origin_ms).cmp(&recency_ms(a.origin_ms)));
+    list.sort_by_key(|a| std::cmp::Reverse(recency_ms(a.origin_ms)));
 }
 
 #[cfg(test)]
@@ -2251,8 +2327,8 @@ mod eew_dedup_tests {
         let side = eew_sidebar_entries(&snap.eew_list);
         assert_eq!(side.len(), 2);
         let agencies: Vec<_> = side.iter().map(|(_, e)| e.agency.0.as_str()).collect();
-        assert!(agencies.iter().any(|a| *a == "cea"));
-        assert!(agencies.iter().any(|a| *a == "cea-pr:云南"));
+        assert!(agencies.contains(&"cea"));
+        assert!(agencies.contains(&"cea-pr:云南"));
     }
 
     #[test]
@@ -2464,5 +2540,62 @@ mod eew_dedup_tests {
         assert!((fly.0 - 141.0).abs() < 1e-6);
         assert!((fly.1 - 31.0).abs() < 1e-6);
         assert!(snap.pending_typhoon_hint);
+    }
+
+    fn sample_weather(id: &str, relieve: Option<&str>) -> WeatherAlert {
+        WeatherAlert {
+            id: id.into(),
+            title: "测试地点发布测试预警".into(),
+            headline: String::new(),
+            origin_time: "2026/10/25 08:00".into(),
+            relieve_time: relieve.map(str::to_string),
+            province: "测试省".into(),
+            city: String::new(),
+            district: String::new(),
+            adcode: None,
+            latitude: None,
+            longitude: None,
+            icon_type: "p0003003".into(),
+            description: String::new(),
+            origin_ms: 0,
+        }
+    }
+
+    #[test]
+    fn weather_upsert_skips_and_removes_expired() {
+        let mut snap = AppSnapshot::empty();
+        snap.upsert_weather(sample_weather("wx-a", Some("2099/12/31 23:59")));
+        assert_eq!(snap.weather.len(), 1);
+
+        snap.upsert_weather(sample_weather("wx-a", Some("2020/01/01 00:00")));
+        assert!(snap.weather.is_empty());
+
+        snap.upsert_weather(sample_weather("wx-b", Some("2099/12/31 23:59")));
+        assert_eq!(snap.weather.len(), 1);
+        snap.upsert_weather(sample_weather("wx-c", Some("2020/01/01 00:00")));
+        assert_eq!(snap.weather.len(), 1);
+        assert_eq!(snap.weather[0].id, "wx-b");
+    }
+
+    #[test]
+    fn weather_prune_expired_by_relieve_time() {
+        let mut snap = AppSnapshot::empty();
+        snap.upsert_weather(sample_weather("active", Some("2099/12/31 23:59")));
+        snap.upsert_weather(sample_weather("gone", Some("2020/01/01 00:00")));
+        assert_eq!(snap.weather.len(), 1);
+        let now = now_ms();
+        assert!(!snap.prune_expired_weather(now));
+        assert_eq!(snap.weather.len(), 1);
+    }
+
+    #[test]
+    fn weather_replace_filters_expired() {
+        let mut snap = AppSnapshot::empty();
+        snap.replace_weather(vec![
+            sample_weather("keep", Some("2099/12/31 23:59")),
+            sample_weather("drop", Some("2020/01/01 00:00")),
+        ]);
+        assert_eq!(snap.weather.len(), 1);
+        assert_eq!(snap.weather[0].id, "keep");
     }
 }

@@ -168,7 +168,8 @@ pub fn locate(
 
     let mut pool = order.clone();
     let mut rejected: Vec<usize> = Vec::new();
-    let mut best: Option<(Hypo, f64, Vec<Phase>, Vec<usize>, usize)> = None;
+    type LocateBest = (Hypo, f64, Vec<Phase>, Vec<usize>, usize);
+    let mut best: Option<LocateBest> = None;
 
     for round in 0..cfg.max_rounds {
         if pool.len() < cfg.min_picks {
@@ -232,7 +233,7 @@ pub fn locate(
     }
 
     let (hypo, err, _phases, used, rounds_run) = best?;
-    if !(err < cfg.max_error_level) {
+    if err.partial_cmp(&cfg.max_error_level) != Some(std::cmp::Ordering::Less) {
         return None;
     }
 
@@ -322,7 +323,7 @@ fn locate_once(
                 cands.push((hypo.lat, hypo.lon, hypo.depth - d_dep));
             }
             let mut local_best =
-                error_level(travel, picks, quiet, now_sec, selected, &phases, hypo, cfg);
+                error_level(ErrorLevelCtx { travel, picks, quiet, now_sec, selected, phases: &phases, hypo, cfg });
             for (ci, &(la, lo, dep)) in cands.iter().enumerate() {
                 if dep < cfg.depth_min_km || dep > cfg.depth_max_km {
                     continue;
@@ -337,9 +338,7 @@ fn locate_once(
                     origin: hypo.origin,
                 };
                 refine_origin(travel, picks, selected, &phases, &mut trial);
-                let e = error_level(
-                    travel, picks, quiet, now_sec, selected, &phases, trial, cfg,
-                );
+                let e = error_level(ErrorLevelCtx { travel, picks, quiet, now_sec, selected, phases: &phases, hypo: trial, cfg });
                 if e < local_best {
                     local_best = e;
                     hypo = trial;
@@ -354,7 +353,7 @@ fn locate_once(
     classify_phases_into(travel, picks, selected, hypo, &mut phases);
     refine_origin(travel, picks, selected, &phases, &mut hypo);
 
-    let err = error_level(travel, picks, quiet, now_sec, selected, &phases, hypo, cfg);
+    let err = error_level(ErrorLevelCtx { travel, picks, quiet, now_sec, selected, phases: &phases, hypo, cfg });
     if !err.is_finite() {
         return None;
     }
@@ -517,16 +516,28 @@ fn first_distance(picks: &[ArrivalPick], selected: &[usize], hypo: Hypo) -> f64 
     .max(50.0)
 }
 
-fn error_level(
-    travel: &TravelEngine,
-    picks: &[ArrivalPick],
-    quiet: &[QuietStation],
+struct ErrorLevelCtx<'a> {
+    travel: &'a TravelEngine,
+    picks: &'a [ArrivalPick],
+    quiet: &'a [QuietStation],
     now_sec: f64,
-    selected: &[usize],
-    phases: &[Phase],
+    selected: &'a [usize],
+    phases: &'a [Phase],
     hypo: Hypo,
-    cfg: &LocateConfig,
-) -> f64 {
+    cfg: &'a LocateConfig,
+}
+
+fn error_level(ctx: ErrorLevelCtx<'_>) -> f64 {
+    let ErrorLevelCtx {
+        travel,
+        picks,
+        quiet,
+        now_sec,
+        selected,
+        phases,
+        hypo,
+        cfg,
+    } = ctx;
     let d0 = first_distance(picks, selected, hypo);
     let mut origins = Vec::with_capacity(selected.len());
     let mut weights = Vec::with_capacity(selected.len());
@@ -828,12 +839,14 @@ mod tests {
         // 故意污染一站：检出时刻大幅偏移（远大于 P/S 时差）
         picks[3].detect_sec += 40.0;
         let now = picks.iter().map(|p| p.detect_sec).fold(0.0, f64::max) + 1.0;
-        let mut cfg = LocateConfig::default();
-        cfg.min_picks = 4;
-        cfg.iqr_min_picks = 6;
-        cfg.cull_worst_fraction = 0.125; // 8 站约剔 1 个
-        cfg.max_rounds = 2;
-        cfg.select_per_round = 0; // 每轮用尽池内站
+        let cfg = LocateConfig {
+            min_picks: 4,
+            iqr_min_picks: 6,
+            cull_worst_fraction: 0.125,
+            max_rounds: 2,
+            select_per_round: 0,
+            ..Default::default()
+        };
         let est = locate(&eng, &picks, &[], now, &cfg).expect("locate");
         assert!(
             est.rejected_pick_indices.contains(&3),

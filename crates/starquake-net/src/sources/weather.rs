@@ -54,7 +54,7 @@ pub fn spawn(
                 backoff_max_secs: 60,
                 stale_secs: 120,
             },
-            |tx, text| ingest_weather_frame(tx, text),
+            ingest_weather_frame,
         )
         .await;
     })]
@@ -70,6 +70,21 @@ pub fn ingest_weather_frame(tx: &NetTx, text: &str) {
         .unwrap_or("")
         .to_ascii_lowercase();
     if typ == "heartbeat" || typ == "pong" || typ == "error" {
+        return;
+    }
+    if typ == "weatherlist_response" {
+        let Some(arr) = v
+            .get("Data")
+            .or_else(|| v.get("data"))
+            .and_then(|x| x.as_array())
+        else {
+            return;
+        };
+        let list: Vec<WeatherAlert> = arr
+            .iter()
+            .filter_map(parse_weather_alert)
+            .collect();
+        let _ = tx.send(NetEvent::WeatherList(list));
         return;
     }
     // 信封 type=weather；Data 为业务体
@@ -162,10 +177,9 @@ fn opt_f64(data: &Value, key: &str) -> Option<f64> {
     let v = data.get(key)?;
     let n = if let Some(f) = v.as_f64() {
         f
-    } else if let Some(s) = v.as_str() {
-        s.trim().parse().ok()?
     } else {
-        return None;
+        let s = v.as_str()?;
+        s.trim().parse().ok()?
     };
     if n.is_finite() {
         Some(n)
@@ -188,4 +202,41 @@ fn parse_weather_time(s: &str) -> Option<i64> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bus::{channel, NetEvent};
+
+    #[test]
+    fn weatherlist_response_replaces_via_event() {
+        let (tx, mut rx) = channel();
+        let json = r#"{"type":"weatherlist_response","Data":[
+            {"id":"a","title":"A省发布暴雨黄色预警","headline":"h","originTime":"2026/10/25 08:00","relieveTime":"2099/12/31 23:59","type":"p0003003"},
+            {"id":"b","title":"B省发布暴雨黄色预警","headline":"h","originTime":"2026/10/25 08:00","relieveTime":"2020/01/01 00:00","type":"p0003003"}
+        ],"count":2}"#;
+        ingest_weather_frame(&tx, json);
+        let NetEvent::WeatherList(list) = rx.try_recv().expect("list") else {
+            panic!("expected WeatherList");
+        };
+        assert_eq!(list.len(), 2);
+        let mut snap = starquake_core::AppSnapshot::empty();
+        snap.replace_weather(list);
+        assert_eq!(snap.weather.len(), 1);
+        assert_eq!(snap.weather[0].id, "a");
+    }
+
+    #[test]
+    fn expired_single_weather_frame_not_kept() {
+        let (tx, mut rx) = channel();
+        let json = r#"{"type":"weather","Data":{"id":"old","title":"某地发布大雾橙色预警","headline":"h","originTime":"2026/10/25 08:00","relieveTime":"2020/01/01 00:00","type":"p0002003"}}"#;
+        ingest_weather_frame(&tx, json);
+        let NetEvent::Weather(alert) = rx.try_recv().expect("weather") else {
+            panic!("expected Weather");
+        };
+        let mut snap = starquake_core::AppSnapshot::empty();
+        snap.upsert_weather(alert);
+        assert!(snap.weather.is_empty());
+    }
 }

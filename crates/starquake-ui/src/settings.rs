@@ -2056,11 +2056,15 @@ fn draw_general(
             toggle(ui, &mut draft.ui.show_volcanoes);
         });
         row_divider(ui);
-        control_row(ui, "气象标注", "地图上的中央台预警色点", "\u{25ce}", |ui| {
+        control_row(ui, "气象卡片", "地图右上气象悬浮卡片（与侧栏卡片模式配合）", "\u{25ce}", |ui| {
             toggle(ui, &mut draft.ui.show_weather);
         });
         row_divider(ui);
-        control_row(ui, "中国雷达", "中央台雷达图叠加（可与日/台同时开）", "\u{25ce}", |ui| {
+        
+        control_row(ui, "本地震源推算", "用测站到时推算震源（紫色叉；非官方预警）", "\u{25ce}", |ui| {
+            toggle(ui, &mut draft.ui.show_local_hypo);
+        });
+control_row(ui, "中国雷达", "中央台雷达图叠加（可与日/台同时开）", "\u{25ce}", |ui| {
             toggle(ui, &mut draft.sources.map_wx.radar_china);
         });
         row_divider(ui);

@@ -27,8 +27,7 @@ pub use place::{fix_place, load_from_dir as load_place_fix};
 pub struct NetHub {
     rx: NetRx,
     /// 保留发送端，避免任务通道在 hub 存活期内被关闭
-    #[allow(dead_code)]
-    tx: NetTx,
+    _tx: NetTx,
     tasks: Vec<JoinHandle<()>>,
 }
 
@@ -119,7 +118,7 @@ pub fn spawn_hub_with_assets(
     ));
     tasks.extend(sources::cenc_int::spawn(tx.clone(), sources.cenc_int.clone()));
     tasks.extend(sources::map_wx::spawn(tx.clone(), sources.map_wx.clone()));
-    NetHub { rx, tx, tasks }
+    NetHub { rx, _tx: tx, tasks }
 }
 
 /// 将 `NetEvent` 合并进 `AppSnapshot`（供 UI 帧循环调用）。
@@ -157,6 +156,7 @@ pub fn apply_event_filtered(
         NetEvent::Tsunami(t) => snap.upsert_tsunami(t),
         NetEvent::Volcano(v) => snap.upsert_volcano(v),
         NetEvent::Weather(w) => snap.upsert_weather(w),
+        NetEvent::WeatherList(list) => snap.replace_weather(list),
         NetEvent::CencInt(e) => snap.upsert_cenc_int(e),
         NetEvent::CencIntList(list) => snap.merge_cenc_int_list(list),
         NetEvent::Typhoons(list) => snap.replace_typhoons(list),

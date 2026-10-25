@@ -73,7 +73,7 @@ impl Default for MapUiResult {
 use egui::{Color32, Sense, Stroke, Ui};
 use starquake_core::{
     CencIntEvent, EewReport, EqRecord, PrecipFrame, RadarFrame, StationSample, TsunamiInfo,
-    TyphoonInfo, VolcanoNotice, WeatherAlert,
+    TyphoonInfo, VolcanoNotice, WeatherAlert, LocalHypoEstimate,
 };
 use starquake_travel::TravelEngine;
 use marker_icons::MarkerIcons;
@@ -433,6 +433,7 @@ impl MapViewport {
         selected_volcano: Option<usize>,
         weather: &[WeatherAlert],
         selected_weather: Option<usize>,
+        local_hypo: Option<&LocalHypoEstimate>,
         cenc_int: Option<&CencIntEvent>,
         typhoons: &[TyphoonInfo],
         typhoon_forecast_agency: &str,
@@ -684,6 +685,9 @@ impl MapViewport {
 
             if let Some((hlon, hlat)) = home {
                 overlay::paint_home(ui, &view, hlon, hlat, icons);
+            }
+            if let Some(h) = local_hypo {
+                overlay::paint_local_hypo(ui, &view, h);
             }
 
             let active_key = active.map(|e| (e.agency.0.as_str(), e.event_id.as_str()));

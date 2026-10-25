@@ -17,6 +17,7 @@ starquake-core = { workspace = true }
 starquake-util = { workspace = true }
 starquake-config = { workspace = true }
 starquake-travel = { workspace = true }
+starquake-hypo = { workspace = true }
 starquake-net = { workspace = true }
 starquake-audio = { workspace = true }
 eframe = { workspace = true }

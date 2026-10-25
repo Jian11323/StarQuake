@@ -8,7 +8,7 @@ use egui::{Color32, Pos2, Rect, Stroke, TextureHandle, Ui, Vec2};
 use starquake_core::palette::color_for;
 use starquake_core::{
     cn_intensity_round, CencIntEvent, EewReport, EqRecord, StationSample, VolcanoNotice,
-    WeatherAlert,
+    WeatherAlert, LocalHypoEstimate,
 };
 use starquake_travel::{max_s_wave_spread_km, TravelEngine, Wave};
 use std::sync::Once;
@@ -780,6 +780,44 @@ fn paint_station_dot(
 
 
 /// 气象预警：有经纬时画色点（等级色取自图标码末三位）。
+
+/// Local station hypo: purple cross (vs official red X).
+pub fn paint_local_hypo(ui: &mut Ui, view: &ViewCtx, hypo: &LocalHypoEstimate) {
+    let Some(p) = view.project(hypo.longitude, hypo.latitude) else {
+        return;
+    };
+    let rect = view.rect;
+    if p.x < rect.left() - 20.0
+        || p.x > rect.right() + 20.0
+        || p.y < rect.top() - 20.0
+        || p.y > rect.bottom() + 20.0
+    {
+        return;
+    }
+    let painter = ui.painter_at(rect);
+    let half = 10.0_f32;
+    let purple = Color32::from_rgb(0x9B, 0x59, 0xB6);
+    let white = Stroke::new(3.2_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 210));
+    let ink = Stroke::new(2.0_f32, purple);
+    let a = p + Vec2::new(-half, -half);
+    let b = p + Vec2::new(half, half);
+    let c = p + Vec2::new(half, -half);
+    let d = p + Vec2::new(-half, half);
+    painter.line_segment([a, b], white);
+    painter.line_segment([c, d], white);
+    painter.line_segment([a, b], ink);
+    painter.line_segment([c, d], ink);
+    painter.circle_stroke(p, 5.0, Stroke::new(1.5_f32, purple));
+    let label = format!("{} {:.1}km  n={}", "推算", hypo.depth_km, hypo.used_stations);
+    painter.text(
+        p + Vec2::new(12.0, -8.0),
+        egui::Align2::LEFT_BOTTOM,
+        label,
+        egui::FontId::proportional(12.0),
+        purple,
+    );
+}
+
 pub fn paint_weather_alerts(
     ui: &mut Ui,
     view: &ViewCtx,

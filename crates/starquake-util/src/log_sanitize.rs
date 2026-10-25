@@ -50,7 +50,7 @@ fn redact_named_values(input: &str, name: &str) -> String {
         out.push_str(&rest[..val_start]);
         let after = &rest[val_start..];
         let val_len = after
-            .find(|c: char| matches!(c, '&' | '#' | '?' | '"' | '\'' | ' ' | '\t' | '\r' | '\n'))
+            .find(['&', '#', '?', '"', '\'', ' ', '\t', '\r', '\n'])
             .unwrap_or(after.len());
         out.push_str("***");
         rest = &after[val_len..];

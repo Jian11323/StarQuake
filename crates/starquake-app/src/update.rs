@@ -539,11 +539,15 @@ fn sha256_hex(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// Download progress: (bytes_downloaded, content_length).
+pub type DownloadProgressCb = dyn Fn(u64, Option<u64>) + Send;
+
 fn download_one_url_once(
     client: &reqwest::blocking::Client,
     url: &str,
     dest: &Path,
     expect_sha: &str,
+    progress: Option<&DownloadProgressCb>,
 ) -> Result<()> {
     info!(url = %url, dest = %dest.display(), "下载更新包");
     let mut resp = client
@@ -556,7 +560,19 @@ fn download_one_url_once(
     }
     let expect_len = resp.content_length();
     let mut file = File::create(dest)?;
-    let written = io::copy(&mut resp, &mut file).context("写入更新包")?;
+    let mut written: u64 = 0;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = resp.read(&mut buf).context("读取更新包")?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n]).context("写入更新包")?;
+        written += n as u64;
+        if let Some(cb) = progress {
+            cb(written, expect_len);
+        }
+    }
     file.flush()?;
     drop(file);
     if let Some(n) = expect_len {
@@ -584,6 +600,7 @@ fn download_one_url(
     url: &str,
     dest: &Path,
     expect_sha: &str,
+    progress: Option<&DownloadProgressCb>,
 ) -> Result<()> {
     const ATTEMPTS: u32 = 3;
     let mut last = None;
@@ -591,7 +608,7 @@ fn download_one_url(
         if dest.exists() {
             let _ = fs::remove_file(dest);
         }
-        match download_one_url_once(client, url, dest, expect_sha) {
+        match download_one_url_once(client, url, dest, expect_sha, progress) {
             Ok(()) => return Ok(()),
             Err(e) => {
                 warn!(
@@ -613,6 +630,13 @@ fn download_one_url(
 /// 下载资源到暂存目录，返回本地文件路径。
 /// 按主 URL → 镜像顺序尝试（每地址最多 3 次）；避免双镜像并行把弱网带宽打爆导致截断。
 pub fn download_asset(info: &AvailableUpdate) -> Result<PathBuf> {
+    download_asset_with_progress(info, None)
+}
+
+pub fn download_asset_with_progress(
+    info: &AvailableUpdate,
+    progress: Option<&DownloadProgressCb>,
+) -> Result<PathBuf> {
     let dir = reset_staging()?;
     let dest = dir.join(&info.asset_name);
     let urls = asset_mirror_urls(&info.asset_url);
@@ -630,7 +654,7 @@ pub fn download_asset(info: &AvailableUpdate) -> Result<PathBuf> {
     let mut errors = Vec::new();
     for (i, url) in urls.into_iter().enumerate() {
         let part = dir.join(format!("part_{i}_{}", info.asset_name));
-        match download_one_url(&client, &url, &part, &info.sha256) {
+        match download_one_url(&client, &url, &part, &info.sha256, progress) {
             Ok(()) => {
                 if part != dest {
                     fs::rename(&part, &dest)
@@ -667,7 +691,7 @@ fn installer_apply_script(setup: &str, e2e_install_dir: Option<&str>) -> String 
     let mut body = String::from(
         "@echo off\r\n\
 chcp 65001 >nul\r\n\
-title StarQuake update\r\n\
+title StarQuake 更新\r\n\
 echo.\r\n\
 echo   Updating StarQuake, please wait...\r\n\
 echo.\r\n\
@@ -681,7 +705,7 @@ timeout /t 2 /nobreak >nul\r\n",
             "if exist \"{dir}\\starquake.exe\" (start \"\" \"{dir}\\starquake.exe\" & goto :done)\r\n"
         ));
     } else {
-        body.push_str(&format!("\"{setup}\" /S\r\n"));
+        body.push_str(&format!("\"{setup}\"\r\n"));
     }
     body.push_str(
         "set \"L1=%ProgramFiles(x86)%\\StarQuake\\starquake.exe\"\r\n\
@@ -759,7 +783,7 @@ pub fn apply_and_relaunch(package: &Path) -> Result<()> {
         let body = format!(
             "@echo off\r\n\
 chcp 65001 >nul\r\n\
-title StarQuake update\r\n\
+title StarQuake 更新\r\n\
 echo.\r\n\
 echo   Updating StarQuake, please wait...\r\n\
 echo.\r\n\
@@ -894,17 +918,19 @@ pub fn open_release_page(url: &str) {
 }
 
 /// 启动主窗口前的检查结果（安装成功时通常已 `process::exit`，不会回到调用方）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum StartupUpdateOutcome {
     /// 继续进主界面；`checked=true` 表示本轮已查过，主界面内勿再自动查
     Continue { checked: bool },
+    /// 用户已确认安装：进入主界面后显示进度并下载（勿在 MessageBox 后静默下载）
+    PendingInstall(AvailableUpdate),
     /// 已触发安装并应退出（兜底；正常路径在 `apply_and_relaunch` 内 exit）
     Exit,
 }
 
 /// 启动主窗口前检查更新：复用 `check_latest` / `download_asset` / `apply_and_relaunch`。
 ///
-/// 流程对齐「滚动字幕」：有新版本则原生对话框询问；确认后下载安装并退出，不创建主窗口。
+/// 流程：有新版本则原生对话框询问；确认后进入主界面显示下载进度再安装（E2E 仍可启动前静默）。
 /// `cfg.last_dismissed_update_version` 可能被改写；调用方应在 Continue 时按需 `save_user_overlay`。
 pub fn run_startup_auto_update(
     cfg: &mut starquake_config::UpdateConfig,
@@ -980,28 +1006,34 @@ pub fn run_startup_auto_update(
             return StartupUpdateOutcome::Continue { checked: true };
         }
 
-        info!(ver = %avail.version, "启动前检查更新：开始下载");
-        match download_asset(&avail) {
-            Ok(path) => {
-                if let Err(e) = apply_and_relaunch(&path) {
-                    warn!("启动前应用更新失败: {e:#}");
+        // E2E：仍在启动前静默下载安装；正式环境进主界面显示进度条
+        if update_e2e() {
+            info!(ver = %avail.version, "启动前检查更新：E2E 静默下载");
+            match download_asset(&avail) {
+                Ok(path) => {
+                    if let Err(e) = apply_and_relaunch(&path) {
+                        warn!("启动前应用更新失败: {e:#}");
+                        native_info(
+                            "更新失败",
+                            &format!("应用更新失败：{e:#}\n将继续启动当前版本。"),
+                        );
+                        StartupUpdateOutcome::Continue { checked: true }
+                    } else {
+                        StartupUpdateOutcome::Exit
+                    }
+                }
+                Err(e) => {
+                    warn!("启动前下载更新失败: {e:#}");
                     native_info(
                         "更新失败",
-                        &format!("应用更新失败：{e:#}\n将继续启动当前版本。"),
+                        &format!("下载失败：{e:#}\n将继续启动当前版本。"),
                     );
                     StartupUpdateOutcome::Continue { checked: true }
-                } else {
-                    StartupUpdateOutcome::Exit
                 }
             }
-            Err(e) => {
-                warn!("启动前下载更新失败: {e:#}");
-                native_info(
-                    "更新失败",
-                    &format!("下载失败：{e:#}\n将继续启动当前版本。"),
-                );
-                StartupUpdateOutcome::Continue { checked: true }
-            }
+        } else {
+            info!(ver = %avail.version, "启动前检查更新：交由主界面下载并显示进度");
+            StartupUpdateOutcome::PendingInstall(avail)
         }
     }
 }
@@ -1188,7 +1220,8 @@ mod tests {
     #[cfg(windows)]
     fn installer_apply_script_silent_and_e2e_dir() {
         let prod = installer_apply_script(r"C:\Temp\setup.exe", None);
-        assert!(prod.contains(r#""C:\Temp\setup.exe" /S"#));
+        assert!(prod.contains(r#""C:\Temp\setup.exe""#));
+        assert!(!prod.contains(" /S"));
         assert!(!prod.contains("/D="));
         assert!(prod.contains(r"%ProgramFiles(x86)%\StarQuake\starquake.exe"));
 

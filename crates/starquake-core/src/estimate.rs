@@ -92,8 +92,11 @@ pub fn estimate_epicentral(
 }
 
 fn cn_from_csis(v: f64) -> (u8, String) {
-    if v < 0.5 {
-        (0, "0".into())
+    if !v.is_finite() || v <= 0.0 {
+        (0, "—".into())
+    } else if v < 0.5 {
+        // 深源/远场估算可 <0.5：保留一位小数供侧栏展示，档位仍为 0（不画烈度环）
+        (0, format!("{:.1}", v))
     } else {
         let level = v.round().clamp(1.0, 12.0) as u8;
         // 文案保留一位小数（对齐 SCEEW 本地烈度展示）；档位仍用四舍五入供环/阈值。
@@ -275,6 +278,17 @@ mod tests {
     fn csis_near_field_finite() {
         let v = calc_csis(5.3, 10.0, 0.0);
         assert!(v.is_finite() && v > 5.0, "got {v}");
+    }
+
+    #[test]
+    fn csis_deep_quake_shows_decimal_below_one() {
+        let (lv, text) = estimate_epicentral(IntensityKind::CnIntensity, 4.9, 515.0);
+        assert_eq!(lv, 0);
+        assert!(
+            text.contains('.'),
+            "M4.9@515km should expose sub-1 estimate, got {text}"
+        );
+        assert_ne!(text, "—");
     }
 
     #[test]
