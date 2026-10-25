@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""把本地 update/manifest.json 推到 Gitee（发版后同步清单）。
+"""把本地 update/manifest.json 推到 Gitee master 与 main（发版后同步清单）。
 
 API 主机用 api.gitee.com（gitee.com/api/v5/repos 常被 WAF 拦截返回 HTML 403）。
 
@@ -24,7 +24,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OWNER = "jian0786"
 REPO = "starquake"
-BRANCH = "master"
+# master 为发版主分支；main 若存在也必须同步，否则客户端竞速会吃到旧清单。
+BRANCHES = ("master", "main")
 REL = "update/manifest.json"
 CTX = ssl.create_default_context()
 
@@ -68,6 +69,43 @@ def api(method: str, path: str, token: str, data: dict | None = None) -> tuple[i
         return code, raw.decode("utf-8", "replace")
 
 
+def put_branch(token: str, branch: str, b64: str) -> tuple[int, str]:
+    code, info = api("GET", f"/repos/{OWNER}/{REPO}/contents/{REL}?ref={branch}", token)
+    if code == 404:
+        # 仓库无该分支则跳过（不要误创文件到错误 ref）
+        return 404, f"skip missing branch {branch}"
+    sha = info.get("sha") if code == 200 and isinstance(info, dict) else None
+    data = {
+        "content": b64,
+        "message": "chore: sync update/manifest.json",
+        "branch": branch,
+    }
+    if sha:
+        data["sha"] = sha
+        method = "PUT"
+    else:
+        # 分支在但文件不存在
+        method = "POST"
+    code2, out = api(method, f"/repos/{OWNER}/{REPO}/contents/{REL}", token, data)
+    if code2 not in (200, 201):
+        return code2, f"fail HTTP {code2}: {out}"
+    raw_url = f"https://gitee.com/{OWNER}/{REPO}/raw/{branch}/{REL}"
+    req = urllib.request.Request(
+        raw_url + f"?_={int(__import__('time').time())}",
+        headers={
+            "User-Agent": "StarQuake-publish-gitee-manifest",
+            "Cache-Control": "no-cache",
+        },
+    )
+    with urllib.request.urlopen(req, context=CTX, timeout=30) as resp:
+        body = resp.read()
+    m = json.loads(body.decode("utf-8"))
+    print(f"OK {method} {REL}@{branch}")
+    print(f"raw {raw_url}")
+    print(f"latest_version {m.get('latest_version')}")
+    return 200, "ok"
+
+
 def main() -> int:
     token = load_token()
     local = ROOT / REL
@@ -77,31 +115,19 @@ def main() -> int:
     content = local.read_bytes()
     b64 = base64.b64encode(content).decode("ascii")
 
-    code, info = api("GET", f"/repos/{OWNER}/{REPO}/contents/{REL}?ref={BRANCH}", token)
-    sha = info.get("sha") if code == 200 and isinstance(info, dict) else None
-    data = {
-        "content": b64,
-        "message": "chore: sync update/manifest.json",
-        "branch": BRANCH,
-    }
-    if sha:
-        data["sha"] = sha
-        method = "PUT"
-    else:
-        method = "POST"
-    code2, out = api(method, f"/repos/{OWNER}/{REPO}/contents/{REL}", token, data)
-    if code2 not in (200, 201):
-        print(f"fail HTTP {code2}: {out}", file=sys.stderr)
+    ok_any = False
+    for branch in BRANCHES:
+        code, msg = put_branch(token, branch, b64)
+        if code == 404:
+            print(msg)
+            continue
+        if code != 200:
+            print(msg, file=sys.stderr)
+            return 1
+        ok_any = True
+    if not ok_any:
+        print("no branch updated", file=sys.stderr)
         return 1
-
-    raw_url = f"https://gitee.com/{OWNER}/{REPO}/raw/{BRANCH}/{REL}"
-    req = urllib.request.Request(raw_url, headers={"User-Agent": "StarQuake-publish-gitee-manifest"})
-    with urllib.request.urlopen(req, context=CTX, timeout=30) as resp:
-        body = resp.read()
-    m = json.loads(body.decode("utf-8"))
-    print(f"OK {method} {REL}@{BRANCH}")
-    print(f"raw {raw_url}")
-    print(f"latest_version {m.get('latest_version')}")
     return 0
 
 

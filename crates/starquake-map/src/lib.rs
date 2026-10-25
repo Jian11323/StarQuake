@@ -325,6 +325,9 @@ impl MapViewport {
             self.center_lat = elat;
             self.zoom = ez;
             self.flight = None;
+            // 落地必须重建矢量 mesh：飞跃中平移复用会把视口外岸线「永远画不出来」
+            self.vector.invalidate_paint_cache();
+            self.still_static = None;
             // 短暂抑制落地弹簧；过长会挡住 S 波跟焦缩小
             self.post_flight_until =
                 Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(0.85));
@@ -413,13 +416,14 @@ impl MapViewport {
     }
 
     /// 绘制地图交互；若单击（非拖拽）则返回点击处经纬度。
-    /// `wave_events`：仍在传播的多震；`eew_markers`：各源最新预警叉标；`active` 高亮选中。
+    /// `wave_events`：仍在传播的多震；`eew_markers`：预警叉标；`eew_marker_nums`：与左上框一致的 ①②…。
     pub fn ui(
         &mut self,
         ui: &mut Ui,
         active: Option<&EewReport>,
         wave_events: &[EewReport],
         eew_markers: &[EewReport],
+        eew_marker_nums: &[Option<usize>],
         travel: Option<&TravelEngine>,
         now_ms: i64,
         show_waves: bool,
@@ -689,7 +693,15 @@ impl MapViewport {
             });
             let show_cross = !blink_active || overlay::eew_mark_blink_on(now_ms);
 
-            overlay::paint_eew_markers(ui, &view, eew_markers, active_key, icons, show_cross);
+            overlay::paint_eew_markers(
+                ui,
+                &view,
+                eew_markers,
+                eew_marker_nums,
+                active_key,
+                icons,
+                show_cross,
+            );
 
             if show_waves {
                 let mut painted_active = false;

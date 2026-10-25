@@ -1,10 +1,9 @@
 {
-  "version": 6,
+  "version": 7,
   "routing": {
     "jma_eew": "srev",
     "default_eew": "eewcn",
     "countdown": "countdown",
-    "station": "station",
     "ui": "ui",
     "record": "eewcn",
     "special": "special"
@@ -15,8 +14,7 @@
       "source": "SREV",
       "use_for": [
         "jma_eew",
-        "jma_tsunami",
-        "jma_intensity"
+        "jma_tsunami"
       ],
       "format": "mp3",
       "dir": "",
@@ -27,17 +25,6 @@
         "update": "update.mp3",
         "final": "final.mp3",
         "cancel": "cancel.mp3",
-        "prompt": "prompt.mp3",
-        "hypocenter": "hypocenter.mp3",
-        "detail": "detail.mp3",
-        "shindo_0": "shindo0.mp3",
-        "shindo_1": "shindo1.mp3",
-        "shindo_2": "shindo2.mp3",
-        "shindo_3": "shindo3.mp3",
-        "shindo_4": "shindo4.mp3",
-        "shindo_5": "shindo5.mp3",
-        "shindo_6": "shindo6.mp3",
-        "shindo_7": "shindo7.mp3",
         "tsunami1_issue": "tsunami1issue.mp3",
         "tsunami1_update": "tsunami1update.mp3",
         "tsunami1_switch": "tsunami1switch.mp3",
@@ -100,35 +87,6 @@
         "40s": "40s.mp3",
         "50s": "50s.mp3",
         "60s": "60s.mp3"
-      }
-    },
-    "eew": {
-      "license": "CC0-1.0",
-      "source": "jian-synth",
-      "use_for": [
-        "fallback"
-      ],
-      "format": "wav",
-      "dir": "",
-      "events": {
-        "issue": "issue.wav",
-        "update": "update.wav",
-        "final": "final.wav",
-        "cancel": "cancel.wav",
-        "prompt": "prompt.wav",
-        "arrive_p": "arrive_p.wav",
-        "arrive_s": "arrive_s.wav"
-      }
-    },
-    "station": {
-      "license": "CC0-1.0",
-      "source": "jian-synth",
-      "format": "wav",
-      "dir": "",
-      "events": {
-        "weak": "weak.wav",
-        "mid": "mid.wav",
-        "strong": "strong.wav"
       }
     },
     "ui": {

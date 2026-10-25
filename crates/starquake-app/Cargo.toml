@@ -32,8 +32,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 notify-rust = "4"
-tray-icon = "0.19"
-muda = "0.15"
+tray-icon = "0.23.1"
+muda = "0.19"
 raw-window-handle = "0.6"
 # msedge-tts 与 reqwest 同时链入 aws-lc / ring 时需显式选定 CryptoProvider
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

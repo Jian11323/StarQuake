@@ -130,7 +130,7 @@ impl AudioEngine {
     }
 
     /// 预警事件音：`pack` 为 `srev`（JMA）或 `eewcn`（其余机构）。
-    /// SREV 另附 caution / warn；eewcn：危急档（烈度≥7 或 M≥5）播 critical，否则首报 alert / 更新 update。
+    /// SREV 另附 caution / warn；eewcn：危急仅首报 critical，其后更新一律 update；非危急首报 alert。
     /// `event_key` 同 [`seed_eew_seen`]：同源槽镜像共用一把钥匙，避免 Wolfx/Jian 各播一次首报音。
     pub fn on_eew(
         &mut self,
@@ -152,29 +152,28 @@ impl AudioEngine {
             self.eew_seen.insert(key, serial);
             return;
         }
+        // eewcn 危急：震级≥M5 **或者** 烈度≥7（满足其一，不是且）；仅首见播 critical，抬报一律 update
         let eewcn_critical = pack == Some("eewcn")
             && (intensity_level >= 7 || (!magnitude_unknown && magnitude >= 5.0));
         let prev = self.eew_seen.get(&key).copied();
         let advanced = match prev {
             None => {
                 // 中途接入且已是第 2+ 报：播更新/最终，勿当首报
-                if eewcn_critical {
-                    self.play_in_pack(pack, AudioCue::Critical);
-                } else if serial > 1 || is_final {
+                if serial > 1 || is_final {
                     if is_final {
                         self.play_in_pack(pack, AudioCue::Final);
                     } else {
                         self.play_in_pack(pack, AudioCue::Update);
                     }
+                } else if eewcn_critical {
+                    self.play_in_pack(pack, AudioCue::Critical);
                 } else {
                     self.play_in_pack(pack, AudioCue::Issue);
                 }
                 true
             }
             Some(p) if serial > p => {
-                if eewcn_critical {
-                    self.play_in_pack(pack, AudioCue::Critical);
-                } else if is_final {
+                if is_final {
                     self.play_in_pack(pack, AudioCue::Final);
                 } else {
                     self.play_in_pack(pack, AudioCue::Update);
@@ -271,7 +270,7 @@ impl AudioEngine {
 }
 
 
-/// 仅测路由决策（不播设备）：供单测核对首报/更新映射。
+/// 仅测路由决策（不播设备）：供单测核对首报/更新映射（须与 [`AudioEngine::on_eew`] 一致）。
 pub fn eew_cue_for(
     prev: Option<u32>,
     serial: u32,
@@ -284,18 +283,16 @@ pub fn eew_cue_for(
     }
     match prev {
         None => {
-            if eewcn_critical {
-                Some("critical")
-            } else if serial > 1 || is_final {
+            if serial > 1 || is_final {
                 Some(if is_final { "final" } else { "update" })
+            } else if eewcn_critical {
+                Some("critical")
             } else {
                 Some("issue")
             }
         }
         Some(p) if serial > p => {
-            if eewcn_critical {
-                Some("critical")
-            } else if is_final {
+            if is_final {
                 Some("final")
             } else {
                 Some("update")
@@ -335,8 +332,10 @@ mod tests {
     }
 
     #[test]
-    fn critical_beats_issue_update() {
+    fn critical_only_on_first_then_update() {
         assert_eq!(eew_cue_for(None, 1, false, false, true), Some("critical"));
-        assert_eq!(eew_cue_for(Some(1), 2, false, false, true), Some("critical"));
+        // 危急事件抬报：播 update，不再反复 critical
+        assert_eq!(eew_cue_for(Some(1), 2, false, false, true), Some("update"));
+        assert_eq!(eew_cue_for(None, 2, false, false, true), Some("update"));
     }
 }

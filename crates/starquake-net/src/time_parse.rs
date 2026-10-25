@@ -52,5 +52,7 @@ pub fn format_time_text(origin_ms: i64) -> String {
         return "—".into();
     };
     let cst = FixedOffset::east_opt(8 * 3600).unwrap();
-    dt.with_timezone(&cst).format("%Y-%m-%d %H:%M").to_string()
+    dt.with_timezone(&cst)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
 }

@@ -1,17 +1,17 @@
-# 気象庁「気象情報の配色に関する設定指針」表２－２（令和2年7月）
-# https://www.jma.go.jp/jma/kishou/info/colorguide/HPColorGuide_202007.pdf
+# 离散 JMA 震度阶级色 — 与 icon/intensity/shindo/*.svg 主色一致（列表图标 / 图例右列）
+# 测站計測色带仍见 crates/starquake-core/src/palette.rs INSTRUMENTAL_BAND
 
-source = "JMA HPColorGuide_202007 table 2-2"
+source = "icon/intensity/shindo SVG primary fill"
 
 [levels]
 # level = [R, G, B]
-"0" = [64, 64, 64]          # 震度 0 / 未着色（指针无专用警戒色）
-"1" = [242, 242, 255]
-"2" = [0, 170, 255]
-"3" = [0, 65, 255]
-"4" = [250, 230, 150]
-"5" = [255, 230, 0]         # 5弱
-"6" = [255, 153, 0]         # 5强
-"7" = [255, 40, 0]          # 6弱
-"8" = [165, 0, 33]          # 6强
-"9" = [180, 0, 104]         # 7
+"0" = [134, 134, 134]       # Shindo 0 #868686
+"1" = [102, 102, 102]       # Shindo 1 #666666
+"2" = [31, 123, 254]        # Shindo 2 #1F7BFE
+"3" = [47, 181, 108]        # Shindo 3 #2FB56C
+"4" = [254, 184, 1]         # Shindo 4 #FEB801
+"5" = [253, 170, 17]        # 5弱 #FDAA11
+"6" = [240, 111, 20]        # 5强 #F06F14
+"7" = [253, 0, 0]           # 6弱 #FD0000
+"8" = [159, 0, 2]           # 6强 #9F0002
+"9" = [93, 0, 141]          # 7 #5D008D

@@ -441,7 +441,7 @@ def main() -> int:
                 new_ver=new_ver,
                 man_url=f"{base}/e2e_manifest_zip.json",
                 expect_http_substr=zip_path.name,
-                extra_env={},
+                extra_env={"STARQUAKE_UPDATE_PREFER_PORTABLE": "1"},
                 watch_dirs=[client],
                 marker_dir=client,
                 log_path=dist / "e2e_update_zip.log",
@@ -451,7 +451,7 @@ def main() -> int:
         # ---- B: setup silent replace ----
         if only in (None, "setup"):
             E2E_ASCII.mkdir(parents=True, exist_ok=True)
-            # 路径含 "Program Files" → 生产逻辑也会优先 installer；并设 PREFER 双保险
+            # 路径含 "Program Files" → 安装包通道；并设 PREFER_INSTALLER 双保险
             client = E2E_ASCII / "Program Files" / "StarQuake"
             install_dir = E2E_ASCII / "install"
             rm_tree(install_dir)

@@ -337,6 +337,15 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "嵌回主窗口侧栏"), "嵌回主視窗側欄");
         m.insert((Lang::Ja, "嵌回主窗口侧栏"), "メインウィンドウに戻す");
         m.insert((Lang::En, "嵌回主窗口侧栏"), "Dock back to main window");
+        m.insert((Lang::ZhTw, "双击标题嵌回；或拖近主窗口右侧松手；也可点「嵌回」"), "雙擊標題嵌回；或拖近主視窗右側鬆手；也可點「嵌回」");
+        m.insert((Lang::Ja, "双击标题嵌回；或拖近主窗口右侧松手；也可点「嵌回」"), "タイトルをダブルクリック、右端へ寄せて離す、または「嵌回」");
+        m.insert((Lang::En, "双击标题嵌回；或拖近主窗口右侧松手；也可点「嵌回」"), "Double-click title, drag near main right edge, or tap Dock");
+        m.insert((Lang::ZhTw, "拖动标题可分离为独立窗口"), "拖動標題可分離為獨立視窗");
+        m.insert((Lang::Ja, "拖动标题可分离为独立窗口"), "タイトルをドラッグして分離");
+        m.insert((Lang::En, "拖动标题可分离为独立窗口"), "Drag title to detach window");
+        m.insert((Lang::ZhTw, "双击标题嵌回主窗口"), "雙擊標題嵌回主視窗");
+        m.insert((Lang::Ja, "双击标题嵌回主窗口"), "タイトルをダブルクリックで戻す");
+        m.insert((Lang::En, "双击标题嵌回主窗口"), "Double-click title to dock");
         m.insert(
             (Lang::ZhTw, "列表可关；向右/向下拖关闭；关闭后右缘拉开或地图右键"),
             "列表可關；向右/向下拖關閉；關閉後右緣拉開或地圖右鍵",

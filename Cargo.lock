@@ -776,7 +776,7 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "convert_travel_tables"
-version = "2.3.1"
+version = "2.3.2-beta"
 dependencies = [
  "anyhow",
  "serde",
@@ -2796,22 +2796,23 @@ dependencies = [
 
 [[package]]
 name = "muda"
-version = "0.15.3"
+version = "0.19.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdae9c00e61cc0579bcac625e8ad22104c60548a025bfc972dc83868a28e1484"
+checksum = "1dd04e60bc0b07438a6771710ee1698f98f6ebbc7f89b61264af1563b8aeb878"
 dependencies = [
  "crossbeam-channel",
  "dpi",
  "gtk",
  "keyboard-types",
  "libxdo",
- "objc2 0.5.3",
- "objc2-app-kit 0.2.2",
- "objc2-foundation 0.2.2",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
+ "objc2-foundation 0.3.2",
  "once_cell",
- "png 0.17.16",
- "thiserror 1.0.69",
- "windows-sys 0.59.0",
+ "png 0.18.1",
+ "thiserror 2.0.21",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4452,7 +4453,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "starquake-app"
-version = "2.3.1"
+version = "2.3.2-beta"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4486,7 +4487,7 @@ dependencies = [
 
 [[package]]
 name = "starquake-audio"
-version = "2.3.1"
+version = "2.3.2-beta"
 dependencies = [
  "anyhow",
  "msedge-tts",
@@ -4499,7 +4500,7 @@ dependencies = [
 
 [[package]]
 name = "starquake-config"
-version = "2.3.1"
+version = "2.3.2-beta"
 dependencies = [
  "anyhow",
  "directories",
@@ -4510,7 +4511,7 @@ dependencies = [
 
 [[package]]
 name = "starquake-core"
-version = "2.3.1"
+version = "2.3.2-beta"
 dependencies = [
  "chrono",
  "serde",
@@ -4519,8 +4520,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "starquake-hypo"
+version = "2.3.2-beta"
+dependencies = [
+ "serde",
+ "serde_json",
+ "starquake-travel",
+ "starquake-util",
+]
+
+[[package]]
 name = "starquake-map"
-version = "2.3.1"
+version = "2.3.2-beta"
 dependencies = [
  "earcutr",
  "egui",
@@ -4537,7 +4548,7 @@ dependencies = [
 
 [[package]]
 name = "starquake-net"
-version = "2.3.1"
+version = "2.3.2-beta"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4557,7 +4568,7 @@ dependencies = [
 
 [[package]]
 name = "starquake-travel"
-version = "2.3.1"
+version = "2.3.2-beta"
 dependencies = [
  "serde",
  "serde_json",
@@ -4567,7 +4578,7 @@ dependencies = [
 
 [[package]]
 name = "starquake-ui"
-version = "2.3.1"
+version = "2.3.2-beta"
 dependencies = [
  "chrono",
  "egui",
@@ -4586,7 +4597,7 @@ dependencies = [
 
 [[package]]
 name = "starquake-util"
-version = "2.3.1"
+version = "2.3.2-beta"
 dependencies = [
  "starquake-config",
  "sysinfo",
@@ -5229,9 +5240,9 @@ dependencies = [
 
 [[package]]
 name = "tray-icon"
-version = "0.19.3"
+version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eadd75f5002e2513eaa19b2365f533090cc3e93abd38788452d9ea85cff7b48a"
+checksum = "15edbb0d80583e85ee8df283410038e17314df5cba30da2087a54a85216c0773"
 dependencies = [
  "crossbeam-channel",
  "dirs",
@@ -5243,9 +5254,9 @@ dependencies = [
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
  "once_cell",
- "png 0.17.16",
+ "png 0.18.1",
  "thiserror 2.0.21",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

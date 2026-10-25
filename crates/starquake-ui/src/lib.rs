@@ -23,7 +23,7 @@ use starquake_core::{
     IntensityKind, ListSelection, OverlayMode, SidebarTab, UserNotice, WeatherAlert,
 };
 use weather_icons::{weather_level_color, WeatherIconCache};
-use starquake_core::palette::{cn_intensity_rgb, instrumental_band_rgb};
+use starquake_core::palette::{cn_intensity_rgb, jma_shindo_rgb};
 use starquake_map::{
     zoom_to_fit_radius_km, BasemapLoadState, BasemapMode, MapUiResult, MapViewport,
     ProjectionMode, TyphoonHoverHit, VectorStyle, OCEAN,
@@ -109,6 +109,10 @@ pub struct MainShell {
     notice_seen: HashMap<String, Instant>,
     /// 分离侧栏几何节流落盘
     sidebar_geom_dirty_at: Option<Instant>,
+    /// 刚分离后短暂禁止自动嵌回，避免一拖出就吸回去
+    sidebar_detach_guard_until: Option<Instant>,
+    /// 浮窗几何是否已下发过一次（之后勿每帧 with_position/size，否则高频抖动）
+    sidebar_float_geom_applied: bool,
 }
 
 impl Default for MainShell {
@@ -129,6 +133,8 @@ impl Default for MainShell {
             notices: Vec::new(),
             notice_seen: HashMap::new(),
             sidebar_geom_dirty_at: None,
+            sidebar_detach_guard_until: None,
+            sidebar_float_geom_applied: false,
         }
     }
 }
@@ -225,7 +231,8 @@ impl MainShell {
         let screen_h = ctx.screen_rect().height();
         const MAP_MIN_W: f32 = 360.0;
         const MAP_MIN_H: f32 = 240.0;
-        const SIDE_IDEAL: f32 = 268.0;
+        /// 对齐 eewcn `resizeDocks(..., 260)`；DPI 由 egui pixels_per_point 处理
+        const SIDE_IDEAL: f32 = 260.0;
         const SIDE_MIN: f32 = 176.0;
         /// 允许拖到比内容更窄，便于继续向右/向下拖到关闭
         const SIDE_DRAG_MIN: f32 = 40.0;
@@ -262,19 +269,25 @@ impl MainShell {
         if show_sidebar && sidebar_detached {
             let vp_id = egui::ViewportId::from_hash_of("starquake_sidebar");
             let sw = &cfg.ui.sidebar_window;
+            let main_outer = ctx.input(|i| i.viewport().outer_rect);
+            // 只设标题/最小尺寸；位置与客户区大小仅首次（或重新分离时）下发，
+            // 否则每帧 with_position/with_inner_size 会与系统拖拽打架导致高频抖动。
             let mut builder = egui::ViewportBuilder::default()
                 .with_title(crate::i18n::t("地震情报实况"))
-                .with_inner_size([
-                    sw.width.clamp(SIDE_MIN, 720.0),
-                    sw.height.clamp(240.0, 2400.0),
-                ])
                 .with_min_inner_size([SIDE_MIN, 240.0])
                 .with_close_button(true);
-            if let (Some(x), Some(y)) = (sw.x, sw.y) {
-                builder = builder.with_position([x, y]);
+            if !self.sidebar_float_geom_applied {
+                builder = builder.with_inner_size([
+                    sw.width.clamp(SIDE_MIN, 720.0),
+                    sw.height.clamp(240.0, 2400.0),
+                ]);
+                if let (Some(x), Some(y)) = (sw.x, sw.y) {
+                    builder = builder.with_position([x, y]);
+                }
             }
             let mut detached_geom: Option<(f32, f32, Option<f32>, Option<f32>)> = None;
             let mut close_requested = false;
+            let mut float_pointer_down = false;
             ctx.show_viewport_immediate(vp_id, builder, |vp_ctx, _class| {
                 egui::CentralPanel::default()
                     .frame(Frame::NONE.fill(p.sidebar_bg))
@@ -292,6 +305,7 @@ impl MainShell {
                         );
                     });
                 let (w, h, x, y) = vp_ctx.input(|i| {
+                    float_pointer_down = i.pointer.any_down();
                     let v = i.viewport();
                     let inner = v.inner_rect.unwrap_or(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -310,12 +324,16 @@ impl MainShell {
                     close_requested = true;
                 }
             });
+            if detached_geom.is_some() {
+                self.sidebar_float_geom_applied = true;
+            }
             if let Some((w, h, x, y)) = detached_geom {
                 let sw = &mut cfg.ui.sidebar_window;
-                let changed = (sw.width - w).abs() > 0.5
-                    || (sw.height - h).abs() > 0.5
-                    || sw.x != x
-                    || sw.y != y;
+                // 阈值加大，避免亚像素/圆整来回写配置
+                let changed = (sw.width - w).abs() > 2.0
+                    || (sw.height - h).abs() > 2.0
+                    || sw.x.map(|ox| x.map(|nx| (ox - nx).abs() > 2.0).unwrap_or(true)).unwrap_or(true)
+                    || sw.y.map(|oy| y.map(|ny| (oy - ny).abs() > 2.0).unwrap_or(true)).unwrap_or(true);
                 if changed {
                     sw.width = w;
                     sw.height = h;
@@ -323,17 +341,37 @@ impl MainShell {
                     sw.y = y;
                     self.sidebar_geom_dirty_at = Some(Instant::now());
                 }
+                // 近似 QDock：浮窗左缘贴近主窗右缘、松手后嵌回（刚分离有短保护）
+                let guard_ok = self
+                    .sidebar_detach_guard_until
+                    .map(|t| Instant::now() >= t)
+                    .unwrap_or(true);
+                if side_action.is_none()
+                    && guard_ok
+                    && !float_pointer_down
+                    && !ctx.input(|i| i.pointer.any_down())
+                {
+                    if let (Some(main), Some(fx), Some(fy)) = (main_outer, x, y) {
+                        let float_bottom = fy + h;
+                        let vert_ok = fy < main.bottom() && float_bottom > main.top();
+                        let near_dock =
+                            fx >= main.right() - 160.0 && fx <= main.right() + 48.0;
+                        if vert_ok && near_dock {
+                            side_action = Some(SideAction::AttachSidebar);
+                        }
+                    }
+                }
             }
             if let Some(at) = self.sidebar_geom_dirty_at {
                 if at.elapsed() >= Duration::from_millis(600) {
                     self.sidebar_geom_dirty_at = None;
                     persist_cfg = true;
-                } else {
-                    ctx.request_repaint_after(Duration::from_millis(200));
                 }
+                // 勿在拖拽落盘节流期强制高频 repaint，否则浮窗更易抖
             }
             if close_requested && side_action.is_none() {
-                side_action = Some(SideAction::CloseSidebar);
+                // 关浮窗：嵌回主窗口侧栏（比直接关掉更符合拖出再拖回）
+                side_action = Some(SideAction::AttachSidebar);
             }
         } else if show_sidebar && portrait {
             let panel_resp = egui::TopBottomPanel::bottom(sidebar_id)
@@ -481,11 +519,18 @@ impl MainShell {
                     cfg.ui.show_typhoons && cfg.sources.typhoon.enabled;
                 let radars: Vec<_> = snap.active_radars().collect();
                 self.map.set_show_terminator(cfg.ui.show_terminator);
+                // 地图 ①②③ 与左上预警条同源槽编号对齐（勿按 eew_list 裸序）
+                let header_cards = header_live_eews(snap, travel);
+                let marker_nums: Vec<Option<usize>> = wave_owned
+                    .iter()
+                    .map(|ev| eew_marker_display_num(ev, snap, travel, &header_cards))
+                    .collect();
                 map_ui = self.map.ui(
                     ui,
                     snap.active.as_ref(),
                     &wave_owned,
                     &wave_owned,
+                    &marker_nums,
                     travel,
                     now_ms,
                     show_waves,
@@ -559,8 +604,9 @@ impl MainShell {
                         ));
                     }
                 }
-                // 对齐 eewcn getWindowZoom：HUD 随地图高度相对 480 缩放
-                let hud_z = hud_window_zoom(map_rect.height());
+                // 预警条/海啸/右上测站与台风：小视口缩小，大屏不放大（RhythmQuake 式）
+                // 图例与右下时钟保持设计稿原尺寸
+                let panel_z = eew_panel_zoom(map_rect.width(), map_rect.height());
                 draw_map_load_banner(ui, &p, self.map.load_state(), self.map.load_status());
                 if let Some(kind) = self.settings.map_pick {
                     draw_map_pick_banner(ui, &p, kind);
@@ -572,15 +618,15 @@ impl MainShell {
                     scale.as_str(),
                     &self.intensity_icons,
                     travel,
-                    hud_z,
+                    panel_z,
                 ) {
                     // 左上框点切换多震：跟焦并解除拖拽锁，便于 cinema 继续轮播
                     self.map.fly_to(lon, lat, Some(z), 0.9);
                     self.map.user_camera_override = false;
                     self.map.last_user_camera_at = None;
                 }
-                draw_tsunami_banner(ui, &p, snap, travel, hud_z);
-                let station_card_bottom = draw_realtime_intensity_card(ui, &p, snap);
+                draw_tsunami_banner(ui, &p, snap, travel, panel_z);
+                let station_card_bottom = draw_realtime_intensity_card(ui, &p, snap, panel_z);
                 let typhoon_fly = draw_typhoon_detail_below_stations(
                     ui,
                     &p,
@@ -591,6 +637,7 @@ impl MainShell {
                         &[]
                     },
                     station_card_bottom.bottom_y,
+                    panel_z,
                 );
                 if let Some(net) = station_card_bottom.clicked {
                     if let Some((lon, lat, zoom)) = snap.focus_max_station(net) {
@@ -604,7 +651,7 @@ impl MainShell {
                     self.map.fly_to_centered(lon, lat, Some(z), 1.0);
                 }
                 if cfg.ui.show_legend {
-                    draw_legend_bar(ui, &p, hud_z);
+                    draw_legend_bar(ui, &p, 1.0);
                 }
                 // 本地未设经纬度时，用当前地图中心估算日出日落
                 let (sun_lat, sun_lon) = match (self.local_lat, self.local_lon) {
@@ -619,7 +666,7 @@ impl MainShell {
                     map_rect,
                     sun_lat,
                     sun_lon,
-                    hud_z,
+                    1.0,
                 );
 
                 // 侧栏关闭或已分离：地图右键菜单（内嵌侧栏打开时不挂，避免挡列表）
@@ -783,6 +830,8 @@ impl MainShell {
                     cfg.ui.show_sidebar = false;
                     cfg.ui.sidebar_detached = false;
                     self.sidebar_geom_dirty_at = None;
+                    self.sidebar_float_geom_applied = false;
+                    self.sidebar_detach_guard_until = None;
                     persist_cfg = true;
                     // 清掉过窄宽度，下次打开用 default_width
                     ctx.data_mut(|d| {
@@ -800,6 +849,9 @@ impl MainShell {
                     cfg.ui.show_sidebar = true;
                     cfg.ui.sidebar_detached = true;
                     self.sidebar_geom_dirty_at = None;
+                    self.sidebar_float_geom_applied = false;
+                    self.sidebar_detach_guard_until =
+                        Some(Instant::now() + Duration::from_millis(900));
                     persist_cfg = true;
                     ctx.data_mut(|d| {
                         d.remove::<egui::containers::panel::PanelState>(sidebar_id);
@@ -809,6 +861,8 @@ impl MainShell {
                     cfg.ui.show_sidebar = true;
                     cfg.ui.sidebar_detached = false;
                     self.sidebar_geom_dirty_at = None;
+                    self.sidebar_float_geom_applied = false;
+                    self.sidebar_detach_guard_until = None;
                     persist_cfg = true;
                     ctx.data_mut(|d| {
                         d.remove::<egui::containers::panel::PanelState>(sidebar_id);
@@ -960,7 +1014,9 @@ fn format_list_time(origin_ms: i64) -> String {
         return "—".into();
     };
     let cst = FixedOffset::east_opt(8 * 3600).unwrap();
-    dt.with_timezone(&cst).format("%Y-%m-%d %H:%M").to_string()
+    dt.with_timezone(&cst)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
 }
 
 fn rgb(c: starquake_core::palette::Rgb) -> Color32 {
@@ -1096,6 +1152,32 @@ fn header_source_rank(agency: &str) -> u8 {
     }
 }
 
+/// 地图叉标序号：跨源与左上 ①②③ 同源槽同号；单源多震用 peer 序。
+fn eew_marker_display_num(
+    ev: &EewReport,
+    snap: &AppSnapshot,
+    travel: Option<&TravelEngine>,
+    header_cards: &[&EewReport],
+) -> Option<usize> {
+    if header_cards.len() > 1 {
+        let key = eew_sidebar_group_key(&ev.agency.0);
+        return header_cards
+            .iter()
+            .position(|c| eew_sidebar_group_key(&c.agency.0) == key)
+            .map(|i| i + 1);
+    }
+    if header_cards.len() == 1 {
+        let peers = header_slot_peers(snap, travel, &ev.agency.0);
+        if peers.len() > 1 {
+            return peers
+                .iter()
+                .position(|p| same_eew_event(p, ev))
+                .map(|i| i + 1);
+        }
+    }
+    None
+}
+
 /// 左上预警条：每源一框（JMA/CN/CWA/GQ…各自独立）；同槽多震 `n/N` + 点击/cinema 轮切。
 fn header_live_eews<'a>(
     snap: &'a AppSnapshot,
@@ -1149,9 +1231,22 @@ fn header_slot_peers<'a>(
     dedupe_same_eew_events(&raw)
 }
 
-/// 对齐 eewcn `getWindowZoom`：设计高度 480，随地图视口高度缩放 HUD。
-fn hud_window_zoom(map_height: f32) -> f32 {
-    (map_height / 480.0).clamp(0.75, 2.0)
+/// 地图 HUD 缩放：参考 RhythmQuake `UiScale.factor`——相对设计稿**只缩不放**。
+/// （eewcn `getWindowZoom` 在大屏可到 2×，会把测站/台风卡撑爆并挤出视口。）
+fn hud_window_zoom(map_w: f32, map_h: f32) -> f32 {
+    (((map_w / 640.0) * (map_h / 480.0)).sqrt()).clamp(0.75, 1.0)
+}
+
+/// 预警条 / 海啸 / 右上测站与台风：同只缩不放。
+fn eew_panel_zoom(map_w: f32, map_h: f32) -> f32 {
+    hud_window_zoom(map_w, map_h)
+}
+
+/// 侧栏内容缩放：对齐 eewcn——**不按宽度改字号**。
+/// eewcn 用 `ListHistoryWidget::ResizeItems` + `ExpandHeight` 按视口宽重排行高；
+/// 本侧用固定字号 + 地名换行 / 烈度块先占位实现同等效果。
+fn sidebar_content_zoom(_width: f32) -> f32 {
+    1.0
 }
 
 fn margin_xy(x: f32, y: f32) -> Margin {
@@ -1465,6 +1560,7 @@ fn draw_typhoon_detail_below_stations(
     hover: Option<&TyphoonHoverHit>,
     typhoons: &[starquake_core::TyphoonInfo],
     station_bottom_y: f32,
+    zoom: f32,
 ) -> Option<(f64, f64, f64)> {
     let hit_owned;
     let hit: Option<&TyphoonHoverHit> = if let Some(h) = hover {
@@ -1562,22 +1658,22 @@ fn draw_typhoon_detail_below_stations(
     ];
 
     // 与右上三测站卡片同宽对齐，并与卡片底边留足间距，避免贴地图
-    const CARD_W: f32 = 240.0; // 76*3 + 6*2
-    let pad = 8.0_f32;
-    let line_h = 16.0_f32;
-    let header_h = 26.0_f32;
-    let body_h = pad + line_h * lines.len() as f32 + 4.0;
-    let total_h = header_h + 2.0 + body_h;
-    let right = ui.max_rect().right() - 12.0;
-    let origin = egui::pos2(right - CARD_W, station_bottom_y + 14.0);
-    let rect = egui::Rect::from_min_size(origin, Vec2::new(CARD_W, total_h));
+    let card_w = 240.0 * zoom; // 76*3 + 6*2
+    let pad = 8.0 * zoom;
+    let line_h = 16.0 * zoom;
+    let header_h = 26.0 * zoom;
+    let body_h = pad + line_h * lines.len() as f32 + 4.0 * zoom;
+    let total_h = header_h + 2.0 * zoom + body_h;
+    let right = ui.max_rect().right() - 12.0 * zoom;
+    let origin = egui::pos2(right - card_w, station_bottom_y + 14.0 * zoom);
+    let rect = egui::Rect::from_min_size(origin, Vec2::new(card_w, total_h));
     let (r, g, b) = starquake_core::typhoon_color_rgb(&hit.strong, hit.power);
     let mut clicked = false;
     overlay_child(ui, "typhoon_detail_card", rect, |ui| {
-        let header_rect = egui::Rect::from_min_size(rect.min, Vec2::new(CARD_W, header_h));
+        let header_rect = egui::Rect::from_min_size(rect.min, Vec2::new(card_w, header_h));
         let body_rect = egui::Rect::from_min_size(
-            egui::pos2(rect.min.x, header_rect.bottom() + 2.0),
-            Vec2::new(CARD_W, body_h),
+            egui::pos2(rect.min.x, header_rect.bottom() + 2.0 * zoom),
+            Vec2::new(card_w, body_h),
         );
         // 标题栏可点：跳转到台风中心（同层 interact，不抢整图拖拽）
         let hdr_resp = ui.interact(
@@ -1603,11 +1699,16 @@ fn draw_typhoon_detail_below_stations(
         } else {
             Color32::from_rgb(0x44, 0x48, 0x58)
         };
-        painter.rect_filled(header_rect, 4.0, Color32::from_rgb(r, g, b).gamma_multiply(0.85));
+        let radius = 4.0 * zoom;
+        painter.rect_filled(
+            header_rect,
+            radius,
+            Color32::from_rgb(r, g, b).gamma_multiply(0.85),
+        );
         painter.rect_stroke(
             header_rect,
-            4.0,
-            Stroke::new(1.0_f32, header_stroke),
+            radius,
+            Stroke::new(1.0_f32 * zoom, header_stroke),
             egui::StrokeKind::Outside,
         );
         let body_fill = Color32::from_rgba_unmultiplied(
@@ -1616,18 +1717,18 @@ fn draw_typhoon_detail_below_stations(
             p.panel_solid.b(),
             0xF0,
         );
-        painter.rect_filled(body_rect, 4.0, body_fill);
+        painter.rect_filled(body_rect, radius, body_fill);
         painter.rect_stroke(
             body_rect,
-            4.0,
-            Stroke::new(1.0_f32, body_stroke),
+            radius,
+            Stroke::new(1.0_f32 * zoom, body_stroke),
             egui::StrokeKind::Outside,
         );
         painter.text(
             egui::pos2(header_rect.min.x + pad, header_rect.center().y),
             egui::Align2::LEFT_CENTER,
             header,
-            FontId::proportional(13.0),
+            FontId::proportional(13.0 * zoom),
             Color32::WHITE,
         );
         let mut y = body_rect.min.y + pad * 0.6;
@@ -1636,7 +1737,7 @@ fn draw_typhoon_detail_below_stations(
                 egui::pos2(body_rect.min.x + pad, y),
                 egui::Align2::LEFT_TOP,
                 line,
-                FontId::proportional(12.0),
+                FontId::proportional(12.0 * zoom),
                 p.text,
             );
             y += line_h;
@@ -1701,8 +1802,9 @@ fn draw_realtime_intensity_card(
     ui: &mut Ui,
     p: &ThemePalette,
     snap: &AppSnapshot,
+    zoom: f32,
 ) -> StationCardLayout {
-    let top_y = ui.max_rect().right_top().y + OVERLAY_TOP_Y;
+    let top_y = ui.max_rect().right_top().y + OVERLAY_TOP_Y * zoom;
     if snap.stations.is_empty() {
         return StationCardLayout {
             clicked: None,
@@ -1749,20 +1851,20 @@ fn draw_realtime_intensity_card(
         cards.push(("all", "NIED", max_inst, false, ts));
     }
 
-    const CARD_W: f32 = 76.0;
-    const CARD_H: f32 = 88.0;
-    let gap = 6.0_f32;
+    let card_w = 76.0 * zoom;
+    let card_h = 88.0 * zoom;
+    let gap = 6.0 * zoom;
     let now_ms = chrono::Utc::now().timestamp_millis();
     const STALE_MS: i64 = 8_000;
-    let total_w = CARD_W * cards.len() as f32 + gap * (cards.len().saturating_sub(1) as f32);
-    let top_right = ui.max_rect().right_top() + Vec2::new(-12.0, OVERLAY_TOP_Y);
+    let total_w = card_w * cards.len() as f32 + gap * (cards.len().saturating_sub(1) as f32);
+    let top_right = ui.max_rect().right_top() + Vec2::new(-12.0 * zoom, OVERLAY_TOP_Y * zoom);
     let rect = egui::Rect::from_min_size(
-        egui::pos2(top_right.x - total_w.max(72.0), top_right.y),
-        Vec2::new(total_w.max(72.0), CARD_H),
+        egui::pos2(top_right.x - total_w.max(72.0 * zoom), top_right.y),
+        Vec2::new(total_w.max(72.0 * zoom), card_h),
     );
     let mut clicked: Option<&'static str> = None;
     overlay_child(ui, "rt_intensity_card", rect, |ui| {
-        ui.set_min_size(Vec2::new(total_w, CARD_H));
+        ui.set_min_size(Vec2::new(total_w, card_h));
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = gap;
             for (k, label, val, is_kma, ts) in &cards {
@@ -1818,8 +1920,9 @@ fn draw_realtime_intensity_card(
                 };
                 let title_color = if light { p.text } else { Color32::WHITE };
 
+                let corner = 6.0 * zoom;
                 let (r, resp) =
-                    ui.allocate_exact_size(Vec2::new(CARD_W, CARD_H), Sense::click());
+                    ui.allocate_exact_size(Vec2::new(card_w, card_h), Sense::click());
                 if resp.clicked() {
                     clicked = Some(*k);
                 }
@@ -1827,13 +1930,13 @@ fn draw_realtime_intensity_card(
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
                 let painter = ui.painter();
-                painter.rect_filled(r, 6.0, card_fill);
-                let head = egui::Rect::from_min_size(r.min, Vec2::new(r.width(), 20.0));
+                painter.rect_filled(r, corner, card_fill);
+                let head = egui::Rect::from_min_size(r.min, Vec2::new(r.width(), 20.0 * zoom));
                 painter.rect_filled(
                     head,
                     egui::CornerRadius {
-                        nw: 6,
-                        ne: 6,
+                        nw: corner as u8,
+                        ne: corner as u8,
                         sw: 0,
                         se: 0,
                     },
@@ -1841,30 +1944,30 @@ fn draw_realtime_intensity_card(
                 );
                 painter.rect_stroke(
                     r,
-                    6.0,
-                    Stroke::new(1.0_f32, stroke_c),
+                    corner,
+                    Stroke::new(1.0_f32 * zoom, stroke_c),
                     egui::StrokeKind::Inside,
                 );
                 painter.hline(
                     r.x_range(),
                     head.bottom(),
-                    Stroke::new(1.0_f32, stroke_c),
+                    Stroke::new(1.0_f32 * zoom, stroke_c),
                 );
                 painter.text(
                     head.center(),
                     egui::Align2::CENTER_CENTER,
                     *label,
-                    FontId::proportional(12.0),
+                    FontId::proportional(12.0 * zoom),
                     title_color,
                 );
                 let body = egui::Rect::from_min_max(
                     egui::pos2(r.left(), head.bottom()),
-                    egui::pos2(r.right(), r.bottom() - 18.0),
+                    egui::pos2(r.right(), r.bottom() - 18.0 * zoom),
                 );
                 // 加粗：双层叠绘
-                let value_font = FontId::new(28.0, FontFamily::Proportional);
+                let value_font = FontId::new(28.0 * zoom, FontFamily::Proportional);
                 painter.text(
-                    body.center() + Vec2::new(0.35, 0.0),
+                    body.center() + Vec2::new(0.35 * zoom, 0.0),
                     egui::Align2::CENTER_CENTER,
                     &value,
                     value_font.clone(),
@@ -1878,10 +1981,10 @@ fn draw_realtime_intensity_card(
                     value_color,
                 );
                 painter.text(
-                    egui::pos2(r.center().x, r.bottom() - 10.0),
+                    egui::pos2(r.center().x, r.bottom() - 10.0 * zoom),
                     egui::Align2::CENTER_CENTER,
                     time_text,
-                    FontId::proportional(11.0),
+                    FontId::proportional(11.0 * zoom),
                     time_color,
                 );
             }
@@ -1915,21 +2018,19 @@ fn draw_legend_bar(ui: &mut Ui, p: &ThemePalette, zoom: f32) {
     let left_w = 18.0 * zoom;
     let right_w = 28.0 * zoom;
     const CN_N: usize = 12;
-    const SH_N: usize = 13;
+    // 右列：离散 JMA 震度阶级（与列表 shindo SVG / jma_shindo_rgb 一致）
+    const SH_N: usize = 10;
     const SH_ROWS: [(&str, u8); SH_N] = [
-        ("7", 20),
-        ("6+", 19),
-        ("6-", 18),
-        ("5+", 17),
-        ("5-", 16),
-        ("4", 15),
-        ("3", 13),
-        ("2", 11),
-        ("1", 9),
-        ("0", 7),
-        ("-1", 5),
-        ("-2", 3),
-        ("-3", 0),
+        ("7", 9),
+        ("6+", 8),
+        ("6-", 7),
+        ("5+", 6),
+        ("5-", 5),
+        ("4", 4),
+        ("3", 3),
+        ("2", 2),
+        ("1", 1),
+        ("0", 0),
     ];
     let width = left_w + sw + mid + sw + right_w;
     let rows = CN_N.max(SH_N);
@@ -1982,7 +2083,7 @@ fn draw_legend_bar(ui: &mut Ui, p: &ThemePalette, zoom: f32) {
         }
 
         for i in 0..SH_N {
-            let (label, band) = SH_ROWS[i];
+            let (label, level) = SH_ROWS[i];
             let y0 = r.top() + row * i as f32;
             let cy = y0 + row * 0.5;
             painter.rect_filled(
@@ -1991,7 +2092,7 @@ fn draw_legend_bar(ui: &mut Ui, p: &ThemePalette, zoom: f32) {
                     egui::pos2(sh_sw_x + sw, y0 + row - pad),
                 ),
                 1.5 * zoom,
-                rgb(instrumental_band_rgb(band)),
+                rgb(jma_shindo_rgb(level)),
             );
             painter.text(
                 egui::pos2(sh_sw_x + sw, cy),
@@ -2258,67 +2359,115 @@ fn draw_sidebar(
     detached: bool,
 ) -> Option<SideAction> {
     let mut clicked = None;
+    // eewcn 侧栏：固定字号；宽度变化只影响换行/行高，不缩放 UI
+    let z = sidebar_content_zoom(ui.available_width());
     ui.set_min_width(ui.available_width());
     Frame::NONE
         .fill(p.sidebar_bg)
         .inner_margin(Margin::symmetric(10, 9))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(crate::i18n::t("地震情报实况"))
-                        .color(p.text)
-                        .strong()
-                        .size(15.5),
-                );
+                let title_tip = if detached {
+                    crate::i18n::t("双击标题嵌回；或拖近主窗口右侧松手；也可点「嵌回」")
+                } else {
+                    crate::i18n::t("拖动标题可分离为独立窗口")
+                };
+                let title_resp = ui
+                    .add(
+                        egui::Label::new(
+                            RichText::new(crate::i18n::t("地震情报实况"))
+                                .color(p.text)
+                                .strong()
+                                .size(15.5 * z),
+                        )
+                        .sense(Sense::click_and_drag()),
+                    )
+                    .on_hover_text(title_tip)
+                    .on_hover_cursor(if detached {
+                        egui::CursorIcon::PointingHand
+                    } else {
+                        egui::CursorIcon::Grab
+                    });
+                let drag_id = egui::Id::new("sidebar_title_undock_drag");
+                if detached {
+                    if title_resp.double_clicked() {
+                        clicked = Some(SideAction::AttachSidebar);
+                    }
+                } else if title_resp.dragged() {
+                    let delta = title_resp.drag_delta();
+                    let should_detach = ui.ctx().data_mut(|d| {
+                        let acc = d.get_temp_mut_or_default::<Vec2>(drag_id);
+                        *acc += delta;
+                        if acc.length() >= 40.0 {
+                            *acc = Vec2::ZERO;
+                            true
+                        } else {
+                            false
+                        }
+                    });
+                    if should_detach {
+                        clicked = Some(SideAction::DetachSidebar);
+                    }
+                } else if title_resp.drag_stopped() {
+                    ui.ctx().data_mut(|d| {
+                        d.insert_temp(drag_id, Vec2::ZERO);
+                    });
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
+                    if detached {
+                        // 分离态：关窗 = 嵌回；额外给显式「嵌回」按钮
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("\u{00d7}").size(16.0 * z).color(p.text_muted),
+                                )
+                                .fill(Color32::TRANSPARENT)
+                                .corner_radius(6.0 * z)
+                                .min_size(Vec2::new(26.0 * z, 26.0 * z)),
+                            )
+                            .on_hover_text(crate::i18n::t("嵌回主窗口侧栏"))
+                            .clicked()
+                        {
+                            clicked = Some(SideAction::AttachSidebar);
+                        }
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new(crate::i18n::t("嵌回"))
+                                        .size(13.0 * z)
+                                        .color(p.text_muted),
+                                )
+                                .fill(p.tab_idle)
+                                .corner_radius(6.0 * z)
+                                .min_size(Vec2::new(52.0 * z, 26.0 * z)),
+                            )
+                            .on_hover_text(crate::i18n::t("嵌回主窗口侧栏"))
+                            .clicked()
+                        {
+                            clicked = Some(SideAction::AttachSidebar);
+                        }
+                    } else if ui
                         .add(
                             egui::Button::new(
-                                RichText::new("\u{00d7}").size(16.0).color(p.text_muted),
+                                RichText::new("\u{00d7}").size(16.0 * z).color(p.text_muted),
                             )
                             .fill(Color32::TRANSPARENT)
-                            .corner_radius(6.0)
-                            .min_size(Vec2::new(26.0, 26.0)),
+                            .corner_radius(6.0 * z)
+                            .min_size(Vec2::new(26.0 * z, 26.0 * z)),
                         )
                         .on_hover_text(crate::i18n::t("关闭侧栏"))
                         .clicked()
                     {
                         clicked = Some(SideAction::CloseSidebar);
                     }
-                    let detach_label = if detached {
-                        crate::i18n::t("嵌回")
-                    } else {
-                        crate::i18n::t("分离")
-                    };
-                    let detach_tip = if detached {
-                        crate::i18n::t("嵌回主窗口侧栏")
-                    } else {
-                        crate::i18n::t("分离为独立窗口")
-                    };
                     if ui
                         .add(
                             egui::Button::new(
-                                RichText::new(detach_label).size(13.0).color(p.text_muted),
+                                RichText::new(crate::i18n::t("设置")).size(13.0 * z).color(p.text_muted),
                             )
                             .fill(p.tab_idle)
-                            .corner_radius(6.0)
-                            .min_size(Vec2::new(52.0, 26.0)),
-                        )
-                        .on_hover_text(detach_tip)
-                        .clicked()
-                    {
-                        clicked = Some(if detached {
-                            SideAction::AttachSidebar
-                        } else {
-                            SideAction::DetachSidebar
-                        });
-                    }
-                    if ui
-                        .add(
-                            egui::Button::new(RichText::new(crate::i18n::t("设置")).size(13.0).color(p.text_muted))
-                                .fill(p.tab_idle)
-                                .corner_radius(6.0)
-                                .min_size(Vec2::new(52.0, 26.0)),
+                            .corner_radius(6.0 * z)
+                            .min_size(Vec2::new(52.0 * z, 26.0 * z)),
                         )
                         .clicked()
                     {
@@ -2327,7 +2476,7 @@ fn draw_sidebar(
                 });
             });
 
-            ui.add_space(6.0);
+            ui.add_space(6.0 * z);
             ui.horizontal(|ui| {
                 for (i, (name, st)) in [
                     ("Jian", snap.health_jian),
@@ -2353,19 +2502,19 @@ fn draw_sidebar(
                     let resp = ui
                         .horizontal(|ui| {
                             let (r, painter) =
-                                ui.allocate_painter(Vec2::splat(9.0), Sense::hover());
-                            painter.circle_filled(r.rect.center(), 3.8, dot);
-                            ui.label(RichText::new(name).size(12.5).color(p.text_dim));
+                                ui.allocate_painter(Vec2::splat(9.0 * z), Sense::hover());
+                            painter.circle_filled(r.rect.center(), 3.8 * z, dot);
+                            ui.label(RichText::new(name).size(12.5 * z).color(p.text_dim));
                         })
                         .response;
                     resp.on_hover_text(tip);
-                    ui.add_space(4.0);
+                    ui.add_space(4.0 * z);
                 }
             });
 
-            ui.add_space(8.0);
-            draw_side_tabs(ui, p, &mut snap.tab);
-            ui.add_space(6.0);
+            ui.add_space(8.0 * z);
+            draw_side_tabs(ui, p, &mut snap.tab, z);
+            ui.add_space(6.0 * z);
 
             let tab = snap.tab;
             let sel = snap.selection;
@@ -2380,6 +2529,7 @@ fn draw_sidebar(
                                         p,
                                         crate::i18n::t("暂无速报"),
                                         crate::i18n::t("已启用数据源时将自动填入；也可在设置中检查连接状态。"),
+                                        z,
                                     );
                                 }
                                 for (i, r) in snap.records.iter().enumerate() {
@@ -2399,9 +2549,14 @@ fn draw_sidebar(
                                         scale,
                                     );
                                     // 单行：时间 震级 深度，避免分控件叠字
+                                    let time = if r.origin_ms > 0 {
+                                        format_list_time(r.origin_ms)
+                                    } else {
+                                        r.time_text.clone()
+                                    };
                                     let sub = format!(
                                         "{}  {}  {}",
-                                        r.time_text,
+                                        time,
                                         r.magnitude_label(),
                                         r.depth_label()
                                     );
@@ -2419,6 +2574,7 @@ fn draw_sidebar(
                                         col,
                                         selected,
                                         egui::Id::new(("rec", i)),
+                                        z,
                                     ) == RowClick::Primary
                                     {
                                         clicked = Some(SideAction::List(SidebarTab::Records, i));
@@ -2433,6 +2589,7 @@ fn draw_sidebar(
                                         p,
                                         crate::i18n::t("暂无预警"),
                                         crate::i18n::t("连接正常后，紧急地震速报会出现在此列表。"),
+                                        z,
                                     );
                                 }
                                 for (real_i, e) in sidebar {
@@ -2471,6 +2628,7 @@ fn draw_sidebar(
                                         col,
                                         selected,
                                         egui::Id::new(("eew", real_i)),
+                                        z,
                                     ) == RowClick::Primary
                                     {
                                         clicked = Some(SideAction::List(SidebarTab::Eew, real_i));
@@ -2484,6 +2642,7 @@ fn draw_sidebar(
                                         p,
                                         crate::i18n::t("暂无火山情报"),
                                         crate::i18n::t("启用 Pancakes JMA-Atom 后，降灰预报等会出现在此列表。"),
+                                        z,
                                     );
                                 }
                                 for (i, v) in snap.volcanoes.iter().enumerate() {
@@ -2500,15 +2659,21 @@ fn draw_sidebar(
                                     } else {
                                         v.title.as_str()
                                     };
+                                    let vol_time = if v.issued_ms > 0 {
+                                        format_list_time(v.issued_ms)
+                                    } else {
+                                        v.time_text.clone()
+                                    };
                                     if volcano_list_row(
                                         ui,
                                         p,
                                         &place,
-                                        &v.time_text,
+                                        &vol_time,
                                         desc,
                                         selected,
                                         show_volcano_icons,
                                         egui::Id::new(("vol", i)),
+                                        z,
                                     ) {
                                         clicked = Some(SideAction::List(SidebarTab::Volcano, i));
                                     }
@@ -2521,6 +2686,7 @@ fn draw_sidebar(
                                         p,
                                         crate::i18n::t("暂无气象预警"),
                                         crate::i18n::t("启用气象源并登录 Jian 令牌后，中央台预警会出现在此列表。"),
+                                        z,
                                     );
                                 }
                                 weather_icons.poll(ui.ctx());
@@ -2538,6 +2704,7 @@ fn draw_sidebar(
                                         icon.as_ref(),
                                         selected,
                                         egui::Id::new(("wx", i)),
+                                        z,
                                     ) {
                                         clicked = Some(SideAction::List(SidebarTab::Weather, i));
                                     }
@@ -2549,21 +2716,21 @@ fn draw_sidebar(
     clicked
 }
 
-fn empty_hint(ui: &mut Ui, p: &ThemePalette, title: &str, detail: &str) {
-    ui.add_space(20.0);
+fn empty_hint(ui: &mut Ui, p: &ThemePalette, title: &str, detail: &str, z: f32) {
+    ui.add_space(20.0 * z);
     Frame::NONE
         .fill(p.chip_bg)
-        .stroke(Stroke::new(1.0_f32, p.panel_border))
-        .inner_margin(Margin::symmetric(12, 14))
-        .corner_radius(10.0)
+        .stroke(Stroke::new(1.0_f32 * z, p.panel_border))
+        .inner_margin(margin_xy(12.0 * z, 14.0 * z))
+        .corner_radius(10.0 * z)
         .show(ui, |ui| {
-            ui.label(RichText::new(title).color(p.text_muted).strong().size(14.0));
-            ui.add_space(4.0);
-            ui.label(RichText::new(detail).color(p.text_dim).size(12.5));
+            ui.label(RichText::new(title).color(p.text_muted).strong().size(14.0 * z));
+            ui.add_space(4.0 * z);
+            ui.label(RichText::new(detail).color(p.text_dim).size(12.5 * z));
         });
 }
 
-fn draw_side_tabs(ui: &mut Ui, p: &ThemePalette, cur: &mut SidebarTab) {
+fn draw_side_tabs(ui: &mut Ui, p: &ThemePalette, cur: &mut SidebarTab, z: f32) {
     ui.horizontal(|ui| {
         for (tab, label) in [
             (SidebarTab::Records, crate::i18n::t("速报")),
@@ -2573,9 +2740,9 @@ fn draw_side_tabs(ui: &mut Ui, p: &ThemePalette, cur: &mut SidebarTab) {
         ] {
             let selected = *cur == tab;
             let text = if selected {
-                RichText::new(label).strong().size(13.5).color(p.text)
+                RichText::new(label).strong().size(13.5 * z).color(p.text)
             } else {
-                RichText::new(label).size(13.5).color(p.text_dim)
+                RichText::new(label).size(13.5 * z).color(p.text_dim)
             };
             let resp = ui.add(
                 egui::Button::new(text)
@@ -2585,15 +2752,15 @@ fn draw_side_tabs(ui: &mut Ui, p: &ThemePalette, cur: &mut SidebarTab) {
                         Color32::TRANSPARENT
                     })
                     .stroke(Stroke::NONE)
-                    .corner_radius(6.0)
-                    .min_size(Vec2::new(52.0, 28.0)),
+                    .corner_radius(6.0 * z)
+                    .min_size(Vec2::new(52.0 * z, 28.0 * z)),
             );
             if selected {
                 let r = resp.rect;
                 ui.painter().hline(
-                    r.left() + 8.0..=r.right() - 8.0,
-                    r.bottom() - 1.0,
-                    Stroke::new(2.0_f32, p.accent),
+                    r.left() + 8.0 * z..=r.right() - 8.0 * z,
+                    r.bottom() - 1.0 * z,
+                    Stroke::new(2.0_f32 * z, p.accent),
                 );
             }
             if resp.clicked() {
@@ -2633,6 +2800,7 @@ fn weather_list_row(
     icon: Option<&egui::TextureHandle>,
     selected: bool,
     id: egui::Id,
+    z: f32,
 ) -> bool {
     let mut clicked = false;
     let bg = if selected {
@@ -2643,13 +2811,13 @@ fn weather_list_row(
     let headline = weather_headline(alert);
     let region = weather_region_line(alert);
     let desc = weather_desc_preview(alert.description.trim());
-    let icon_sz = Vec2::splat(42.0);
+    let icon_sz = Vec2::splat(42.0 * z);
     let level = weather_level_color(&alert.icon_type);
 
     let resp = Frame::NONE
         .fill(bg)
-        .inner_margin(Margin::symmetric(8, 7))
-        .corner_radius(8.0)
+        .inner_margin(margin_xy(8.0 * z, 7.0 * z))
+        .corner_radius(8.0 * z)
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
@@ -2663,37 +2831,39 @@ fn weather_list_row(
                         Color32::WHITE,
                     );
                 } else {
-                    painter.rect_filled(icon_r.rect, 6.0, level);
+                    painter.rect_filled(icon_r.rect, 6.0 * z, level);
                     painter.rect_stroke(
                         icon_r.rect,
-                        6.0,
-                        Stroke::new(1.0_f32, p.panel_border),
+                        6.0 * z,
+                        Stroke::new(1.0_f32 * z, p.panel_border),
                         egui::StrokeKind::Inside,
                     );
                 }
 
-                ui.add_space(8.0);
+                ui.add_space(8.0 * z);
                 ui.vertical(|ui| {
-                    let max_w = (ui.available_width() - 4.0).max(40.0);
+                    let max_w = (ui.available_width() - 4.0 * z).max(40.0 * z);
                     ui.set_max_width(max_w);
                     if !headline.is_empty() {
                         ui.add(
                             egui::Label::new(
-                                RichText::new(&headline).strong().size(13.5).color(p.text),
+                                RichText::new(&headline).strong().size(13.5 * z).color(p.text),
                             )
                             .truncate(),
                         );
                     }
                     if !region.is_empty() {
                         ui.add(
-                            egui::Label::new(RichText::new(&region).size(12.5).color(p.text_dim))
-                                .truncate(),
+                            egui::Label::new(
+                                RichText::new(&region).size(12.5 * z).color(p.text_dim),
+                            )
+                            .truncate(),
                         );
                     }
                     if !desc.is_empty() {
                         ui.add(
                             egui::Label::new(
-                                RichText::new(&desc).size(12.0).color(p.text_muted),
+                                RichText::new(&desc).size(12.0 * z).color(p.text_muted),
                             )
                             .truncate(),
                         );
@@ -2709,15 +2879,15 @@ fn weather_list_row(
     if full.hovered() && !selected {
         ui.painter().rect_stroke(
             resp.rect,
-            8.0,
-            Stroke::new(1.0_f32, p.panel_border),
+            8.0 * z,
+            Stroke::new(1.0_f32 * z, p.panel_border),
             egui::StrokeKind::Outside,
         );
     }
     if full.clicked() {
         clicked = true;
     }
-    ui.add_space(3.0);
+    ui.add_space(3.0 * z);
     clicked
 }
 
@@ -2767,6 +2937,7 @@ fn volcano_list_row(
     selected: bool,
     show_icon: bool,
     id: egui::Id,
+    z: f32,
 ) -> bool {
     let mut clicked = false;
     let bg = if selected {
@@ -2778,38 +2949,38 @@ fn volcano_list_row(
 
     let resp = Frame::NONE
         .fill(bg)
-        .inner_margin(Margin::symmetric(8, 7))
-        .corner_radius(8.0)
+        .inner_margin(margin_xy(8.0 * z, 7.0 * z))
+        .corner_radius(8.0 * z)
         .show(ui, |ui| {
             ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 let (stripe, painter) =
-                    ui.allocate_painter(Vec2::new(4.0, 50.0), Sense::hover());
-                painter.rect_filled(stripe.rect, 2.0, accent);
+                    ui.allocate_painter(Vec2::new(4.0 * z, 50.0 * z), Sense::hover());
+                painter.rect_filled(stripe.rect, 2.0 * z, accent);
 
-                ui.add_space(8.0);
+                ui.add_space(8.0 * z);
                 if show_icon {
                     ui.label(
                         RichText::new("\u{25b2}")
                             .color(accent)
-                            .size(16.0)
+                            .size(16.0 * z)
                             .strong(),
                     );
-                    ui.add_space(4.0);
+                    ui.add_space(4.0 * z);
                 }
                 ui.vertical(|ui| {
-                    let max_w = (ui.available_width() - 4.0).max(40.0);
+                    let max_w = (ui.available_width() - 4.0 * z).max(40.0 * z);
                     ui.set_max_width(max_w);
                     ui.add(
-                        egui::Label::new(RichText::new(place).color(p.text).size(15.0))
+                        egui::Label::new(RichText::new(place).color(p.text).size(15.0 * z))
                             .truncate(),
                     );
                     ui.add(
-                        egui::Label::new(RichText::new(sub).color(p.text_dim).size(13.0))
+                        egui::Label::new(RichText::new(sub).color(p.text_dim).size(13.0 * z))
                             .truncate(),
                     );
                     ui.add(
-                        egui::Label::new(RichText::new(title).color(p.text_muted).size(12.5))
+                        egui::Label::new(RichText::new(title).color(p.text_muted).size(12.5 * z))
                             .wrap(),
                     );
                 });
@@ -2823,15 +2994,15 @@ fn volcano_list_row(
     if full.hovered() && !selected {
         ui.painter().rect_stroke(
             resp.rect,
-            8.0,
-            Stroke::new(1.0_f32, p.panel_border),
+            8.0 * z,
+            Stroke::new(1.0_f32 * z, p.panel_border),
             egui::StrokeKind::Outside,
         );
     }
     if full.clicked() {
         clicked = true;
     }
-    ui.add_space(3.0);
+    ui.add_space(3.0 * z);
     clicked
 }
 
@@ -2849,6 +3020,7 @@ fn list_row(
     accent: Color32,
     selected: bool,
     id: egui::Id,
+    _z: f32,
 ) -> RowClick {
     let bg = if selected {
         p.row_selected
@@ -2856,30 +3028,52 @@ fn list_row(
         Color32::TRANSPARENT
     };
 
+    // 对齐 eewcn EarthquakeListEntryForm：烈度块固定约 40px，地名随宽换行（ExpandHeight）
+    let chip = 40.0_f32;
     let resp = Frame::NONE
         .fill(bg)
-        .inner_margin(Margin::symmetric(8, 8))
-        .corner_radius(8.0)
+        .inner_margin(Margin::symmetric(8, 6))
+        .corner_radius(6.0)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 let (stripe, painter) =
-                    ui.allocate_painter(Vec2::new(4.0, 42.0), Sense::hover());
-                painter.rect_filled(stripe.rect, 2.0, accent);
+                    ui.allocate_painter(Vec2::new(3.0, chip), Sense::hover());
+                painter.rect_filled(stripe.rect, 1.5, accent);
+                ui.add_space(6.0);
 
-                ui.add_space(8.0);
-                ui.vertical(|ui| {
-                    ui.set_max_width(ui.available_width() - 48.0);
-                    ui.label(RichText::new(place).color(p.text).size(15.0));
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(sub).color(p.text_dim).size(13.0));
-                        if !mag.is_empty() {
-                            ui.label(RichText::new(mag).color(p.text_muted).size(13.0));
-                        }
-                    });
-                });
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    paint_intensity(ui, icons, kind, level, intensity_text, scale, 34.0, false);
+                // 先占烈度块（右），剩余宽度给文字——等同 eewcn ExpandHeight 扣掉 intensity 宽
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    paint_intensity(
+                        ui,
+                        icons,
+                        kind,
+                        level,
+                        intensity_text,
+                        scale,
+                        chip,
+                        false,
+                    );
+                    ui.add_space(6.0);
+                    let text_w = ui.available_width().max(48.0);
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(text_w, ui.available_height().max(chip)),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ui.set_max_width(text_w);
+                            // 地名：窄侧栏换行增高（eewcn labelLocation wordWrap）
+                            ui.add(
+                                egui::Label::new(RichText::new(place).color(p.text).size(14.0))
+                                    .wrap(),
+                            );
+                            ui.add(
+                                egui::Label::new(RichText::new(sub).color(p.text_dim).size(12.0))
+                                    .wrap(),
+                            );
+                            if !mag.is_empty() {
+                                ui.label(RichText::new(mag).color(p.text_muted).size(12.0));
+                            }
+                        },
+                    );
                 });
             });
         })
@@ -2891,12 +3085,12 @@ fn list_row(
     if full.hovered() && !selected {
         ui.painter().rect_stroke(
             resp.rect,
-            8.0,
+            6.0,
             Stroke::new(1.0_f32, p.panel_border),
             egui::StrokeKind::Outside,
         );
     }
-    ui.add_space(3.0);
+    ui.add_space(2.0);
     if full.clicked() {
         RowClick::Primary
     } else {

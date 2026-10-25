@@ -119,15 +119,6 @@ impl Router {
         if full.is_file() {
             return Some(full);
         }
-        // 回退原创 eew 包
-        if pack != "eew" {
-            if let Some(rel2) = catalog.event_rel_path("eew", &event_key) {
-                let f2 = self.sound_root.join(rel2);
-                if f2.is_file() {
-                    return Some(f2);
-                }
-            }
-        }
         tracing::warn!(path = %full.display(), "audio file missing");
         None
     }

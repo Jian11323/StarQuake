@@ -1,0 +1,14 @@
+[package]
+name = "starquake-hypo"
+version.workspace = true
+edition.workspace = true
+description = "测站到时震源推算（SREV 式误差水平；不含检知）"
+license.workspace = true
+
+[dependencies]
+starquake-travel = { workspace = true }
+starquake-util = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

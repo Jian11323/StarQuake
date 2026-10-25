@@ -1,6 +1,8 @@
 //! 从静态更新清单检查 / 下载 / 应用更新。
 //!
-//! 并行拉取 GitHub 与 Gitee 上的 `update/manifest.json` 与更新包，先成功者优先。
+//! 并行拉取更新清单；成功结果中取**版本号最新**的一份（同版本优先 Gitee）。
+//! 镜像优先级固定为：**Gitee → GitHub → 自建服务器**（服务器仅兜底）。
+//! 更新包按该优先级顺序下载，单地址失败可重试；校验 Content-Length 与 SHA256。
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -10,6 +12,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc;
+use std::time::Duration;
 use tracing::{info, warn};
 
 const UA: &str = concat!(
@@ -18,16 +21,24 @@ const UA: &str = concat!(
     " (+https://github.com/Jian11323/StarQuake; +https://gitee.com/jian0786/starquake)"
 );
 
-/// 清单地址（GitHub / Gitee 并行竞速，先成功者优先）。
+/// 清单地址优先级：Gitee → GitHub → 自建服务器（并行拉取；取最新版，同版本偏 Gitee）。
 const MANIFEST_URLS: &[&str] = &[
+    // 1) Gitee
     "https://gitee.com/jian0786/starquake/raw/master/update/manifest.json",
     "https://gitee.com/jian0786/starquake/raw/main/update/manifest.json",
+    // 2) GitHub
     "https://raw.githubusercontent.com/Jian11323/StarQuake/main/update/manifest.json",
     "https://raw.githubusercontent.com/Jian11323/StarQuake/master/update/manifest.json",
+    // 3) 自建服务器（兜底；有稳定出站后再取消注释）
+    // "https://api.sismotide.top/starquake/update/manifest.json",
 ];
 
 const GITEE_REPO_PREFIX: &str = "https://gitee.com/jian0786/starquake/";
 const GITHUB_REPO_PREFIX: &str = "https://github.com/Jian11323/StarQuake/";
+/// 自建服务器 Release 前缀（与 Gitee/GitHub 路径后缀对齐时可推导）。
+const SERVER_REPO_PREFIX: &str = "https://api.sismotide.top/starquake/";
+/// 服务器附件镜像未稳定前勿自动推导，避免每次更新空打 404。
+const SERVER_ASSET_MIRROR_ENABLED: bool = false;
 
 fn env_truthy(name: &str) -> bool {
     std::env::var(name)
@@ -43,9 +54,14 @@ fn update_e2e() -> bool {
     env_truthy("STARQUAKE_UPDATE_E2E")
 }
 
-/// E2E：强制优先选 setup.exe（不依赖真实 Program Files 路径）。
+/// E2E：强制走安装包通道（不依赖真实安装路径）。
 fn update_e2e_prefer_installer() -> bool {
     update_e2e() && env_truthy("STARQUAKE_UPDATE_PREFER_INSTALLER")
+}
+
+/// E2E：强制走便携 zip 通道。
+fn update_e2e_prefer_portable() -> bool {
+    update_e2e() && env_truthy("STARQUAKE_UPDATE_PREFER_PORTABLE")
 }
 
 /// E2E：setup `/S /D=` 目标目录（避免写进真实 Program Files；仅 E2E 生效）。
@@ -87,7 +103,7 @@ pub struct AvailableUpdate {
     pub sha256: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct UpdateManifest {
     latest_version: String,
     #[serde(default)]
@@ -122,10 +138,8 @@ struct ManifestAsset {
 /// 解析 `v2.0.1` / `2.0.1` / `StarQuake-2.0.1` → (major, minor, patch)。
 pub fn parse_semver(raw: &str) -> Option<(u64, u64, u64)> {
     let s = raw.trim().trim_start_matches('v').trim_start_matches('V');
-    let s = s
-        .rsplit([' ', '-', '_'])
-        .find(|p| p.chars().next().is_some_and(|c| c.is_ascii_digit()))
-        .unwrap_or(s);
+    // 预发布后缀截断：`2.3.2-beta` / `2.3.2-beta.1` → `2.3.2`（勿用 rsplit 误吃成 `1`）
+    let s = s.split(['-', '+', ' ']).next().unwrap_or(s);
     let mut parts = s.split('.');
     let major = parts.next()?.parse().ok()?;
     let minor = parts.next().unwrap_or("0").parse().ok()?;
@@ -159,7 +173,22 @@ fn try_fetch_manifest_one(
     client: &reqwest::blocking::Client,
     url: &str,
 ) -> Result<UpdateManifest> {
-    let resp = client.get(url).send().with_context(|| format!("请求 {url}"))?;
+    // 绕过 CDN/代理对 raw 文件的陈旧缓存（Gitee main 曾长期停在旧版）。
+    let bust = format!(
+        "{}{}_={}",
+        url,
+        if url.contains('?') { '&' } else { '?' },
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let resp = client
+        .get(&bust)
+        .header(reqwest::header::CACHE_CONTROL, "no-cache")
+        .header(reqwest::header::PRAGMA, "no-cache")
+        .send()
+        .with_context(|| format!("请求 {url}"))?;
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().unwrap_or_default();
@@ -171,6 +200,40 @@ fn try_fetch_manifest_one(
     let text = String::from_utf8_lossy(&bytes);
     let text = text.trim_start_matches('\u{feff}');
     serde_json::from_str::<UpdateManifest>(text).context("解析 JSON")
+}
+
+fn mirror_rank(url: &str) -> u8 {
+    let u = url.to_ascii_lowercase();
+    if u.contains("gitee.com") {
+        0
+    } else if u.contains("github.com") || u.contains("githubusercontent.com") {
+        1
+    } else {
+        2 // 自建服务器及其它
+    }
+}
+
+/// 选最新 `latest_version`；同版本优先 Gitee，再 GitHub，服务器最后。
+fn pick_newest_manifest(cands: &[(String, UpdateManifest)]) -> Option<(String, UpdateManifest)> {
+    let mut best: Option<(String, UpdateManifest)> = None;
+    for (url, m) in cands {
+        let take = match &best {
+            None => true,
+            Some((best_url, cur)) => {
+                if is_newer(&m.latest_version, &cur.latest_version) {
+                    true
+                } else if is_newer(&cur.latest_version, &m.latest_version) {
+                    false
+                } else {
+                    mirror_rank(url) < mirror_rank(best_url)
+                }
+            }
+        };
+        if take {
+            best = Some((url.clone(), m.clone()));
+        }
+    }
+    best
 }
 
 fn fetch_manifest(client: &reqwest::blocking::Client) -> Result<UpdateManifest> {
@@ -188,12 +251,15 @@ fn fetch_manifest(client: &reqwest::blocking::Client) -> Result<UpdateManifest> 
     drop(tx);
 
     let mut errors = Vec::new();
+    let mut ok: Vec<(String, UpdateManifest)> = Vec::new();
     let mut remaining = n;
+    // 等齐全部镜像，再取最新版——禁止「先到先得」吃到过期分支。
     while remaining > 0 {
         match rx.recv() {
             Ok((url, Ok(m))) => {
-                info!(url = %url, ver = %m.latest_version, "更新清单已加载");
-                return Ok(m);
+                info!(url = %url, ver = %m.latest_version, "更新清单候选");
+                ok.push((url, m));
+                remaining -= 1;
             }
             Ok((url, Err(e))) => {
                 errors.push(format!("{url} → {e:#}"));
@@ -201,6 +267,23 @@ fn fetch_manifest(client: &reqwest::blocking::Client) -> Result<UpdateManifest> 
             }
             Err(_) => break,
         }
+    }
+    if let Some((url, m)) = pick_newest_manifest(&ok) {
+        if ok.len() > 1 {
+            let vers: Vec<_> = ok
+                .iter()
+                .map(|(u, x)| format!("{u}={}", x.latest_version))
+                .collect();
+            info!(
+                chosen = %url,
+                ver = %m.latest_version,
+                candidates = %vers.join(" | "),
+                "更新清单已选用最新版"
+            );
+        } else {
+            info!(url = %url, ver = %m.latest_version, "更新清单已加载");
+        }
+        return Ok(m);
     }
     bail!(
         "无法获取更新清单：{}",
@@ -212,49 +295,97 @@ fn fetch_manifest(client: &reqwest::blocking::Client) -> Result<UpdateManifest> 
     )
 }
 
-/// 安装到 Program Files 时优先用 setup.exe（需管理员，zip 直拷会失败）。
+/// Windows 更新通道：安装包版与便携版互斥，禁止串路。
 #[cfg(windows)]
-fn running_from_program_files() -> bool {
-    std::env::current_exe()
-        .ok()
-        .map(|p| {
-            let s = p.to_string_lossy().to_ascii_lowercase();
-            s.contains("program files")
-        })
-        .unwrap_or(false)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WinUpdateChannel {
+    Installer,
+    Portable,
+}
+
+/// 根据运行路径与 E2E 开关判定 Windows 更新通道。
+#[cfg(windows)]
+fn windows_update_channel() -> WinUpdateChannel {
+    if update_e2e_prefer_installer() {
+        return WinUpdateChannel::Installer;
+    }
+    if update_e2e_prefer_portable() {
+        return WinUpdateChannel::Portable;
+    }
+    if looks_like_windows_installed_path() {
+        WinUpdateChannel::Installer
+    } else {
+        WinUpdateChannel::Portable
+    }
+}
+
+/// 路径启发式：NSIS 安装目录 / Program Files / `%LocalAppData%\Programs\…`。
+#[cfg(windows)]
+fn looks_like_windows_installed_path() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    if let Some(dir) = exe.parent() {
+        if dir.join("Uninstall.exe").is_file() || dir.join("uninstall.exe").is_file() {
+            return true;
+        }
+    }
+    let path = exe.to_string_lossy().to_ascii_lowercase().replace('/', "\\");
+    if path.contains("\\program files\\") || path.contains("\\program files (x86)\\") {
+        return true;
+    }
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        let prefix = PathBuf::from(local)
+            .join("Programs")
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .replace('/', "\\");
+        let prefix = prefix.trim_end_matches('\\').to_string();
+        if !prefix.is_empty() && path.starts_with(&prefix) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(windows)]
+fn pick_platform_asset_for(
+    m: &UpdateManifest,
+    channel: WinUpdateChannel,
+) -> Result<(ManifestAsset, String)> {
+    match channel {
+        WinUpdateChannel::Installer => {
+            let Some(a) = m.installer.as_ref().filter(|a| !a.url.trim().is_empty()) else {
+                bail!("当前为安装包版，但更新清单缺少 installer URL");
+            };
+            let name = url_file_name(&a.url).unwrap_or_else(|| "StarQuake_setup.exe".into());
+            info!(asset = %name, "更新通道：Windows 安装包");
+            Ok((a.clone(), name))
+        }
+        WinUpdateChannel::Portable => {
+            let Some(a) = m.zip.as_ref().filter(|a| !a.url.trim().is_empty()) else {
+                bail!("当前为便携版，但更新清单缺少 zip URL");
+            };
+            let name = url_file_name(&a.url).unwrap_or_else(|| "StarQuake_portable.zip".into());
+            info!(asset = %name, "更新通道：Windows 便携包");
+            Ok((a.clone(), name))
+        }
+    }
 }
 
 fn pick_platform_asset(m: &UpdateManifest) -> Result<(ManifestAsset, String)> {
     #[cfg(windows)]
     {
-        let zip = m.zip.as_ref().filter(|a| !a.url.trim().is_empty());
-        let installer = m.installer.as_ref().filter(|a| !a.url.trim().is_empty());
-        // 已安装版 → setup 优先；便携版 → zip 优先（E2E 可强制 installer）
-        let order: [Option<&ManifestAsset>; 2] =
-            if running_from_program_files() || update_e2e_prefer_installer() {
-                [installer, zip]
-            } else {
-                [zip, installer]
-            };
-        for a in order.into_iter().flatten() {
-            let name = url_file_name(&a.url).unwrap_or_else(|| {
-                if a.url.to_ascii_lowercase().contains(".exe") {
-                    "StarQuake_setup.exe".into()
-                } else {
-                    "StarQuake_portable.zip".into()
-                }
-            });
-            return Ok((a.clone(), name));
-        }
-        bail!("更新清单缺少 Windows 安装包 / 便携包 URL");
+        pick_platform_asset_for(m, windows_update_channel())
     }
     #[cfg(not(windows))]
     {
-        if let Some(l) = m.linux.as_ref().filter(|a| !a.url.trim().is_empty()) {
-            let name = url_file_name(&l.url).unwrap_or_else(|| "StarQuake_linux.tar.gz".into());
-            return Ok((l.clone(), name));
-        }
-        bail!("更新清单缺少 Linux 包 URL");
+        let Some(l) = m.linux.as_ref().filter(|a| !a.url.trim().is_empty()) else {
+            bail!("更新清单缺少 Linux 包 URL");
+        };
+        let name = url_file_name(&l.url).unwrap_or_else(|| "StarQuake_linux.tar.gz".into());
+        info!(asset = %name, "更新通道：Linux");
+        Ok((l.clone(), name))
     }
 }
 
@@ -266,20 +397,70 @@ fn url_file_name(url: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// 由清单里的主 URL 推导 GitHub / Gitee 镜像，去重后并行下载。
+/// 由清单主 URL 推导各镜像，固定顺序：**Gitee → GitHub → 自建服务器**。
 fn asset_mirror_urls(primary: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut push = |u: String| {
-        if !u.trim().is_empty() && !out.iter().any(|x| x == &u) {
-            out.push(u);
+    let primary = primary.trim();
+    let mut gitee: Option<String> = None;
+    let mut github: Option<String> = None;
+    let mut server: Option<String> = None;
+
+    let classify = |u: &str| -> &'static str {
+        let lower = u.to_ascii_lowercase();
+        if lower.contains("gitee.com") {
+            "gitee"
+        } else if lower.contains("github.com") {
+            "github"
+        } else if lower.starts_with(&SERVER_REPO_PREFIX.to_ascii_lowercase())
+            || lower.contains("sismotide.top/starquake")
+        {
+            "server"
+        } else {
+            "other"
         }
     };
-    push(primary.trim().to_string());
+
+    match classify(primary) {
+        "gitee" => gitee = Some(primary.to_string()),
+        "github" => github = Some(primary.to_string()),
+        "server" => server = Some(primary.to_string()),
+        _ => {}
+    }
+
     if let Some(rest) = primary.strip_prefix(GITEE_REPO_PREFIX) {
-        push(format!("{GITHUB_REPO_PREFIX}{rest}"));
+        github.get_or_insert_with(|| format!("{GITHUB_REPO_PREFIX}{rest}"));
+        if SERVER_ASSET_MIRROR_ENABLED {
+            server.get_or_insert_with(|| format!("{SERVER_REPO_PREFIX}{rest}"));
+        }
     }
     if let Some(rest) = primary.strip_prefix(GITHUB_REPO_PREFIX) {
-        push(format!("{GITEE_REPO_PREFIX}{rest}"));
+        gitee.get_or_insert_with(|| format!("{GITEE_REPO_PREFIX}{rest}"));
+        if SERVER_ASSET_MIRROR_ENABLED {
+            server.get_or_insert_with(|| format!("{SERVER_REPO_PREFIX}{rest}"));
+        }
+    }
+    if let Some(rest) = primary.strip_prefix(SERVER_REPO_PREFIX) {
+        gitee.get_or_insert_with(|| format!("{GITEE_REPO_PREFIX}{rest}"));
+        github.get_or_insert_with(|| format!("{GITHUB_REPO_PREFIX}{rest}"));
+    }
+
+    let mut out = Vec::new();
+    let mut push_opt = |u: Option<String>| {
+        if let Some(u) = u {
+            if !u.trim().is_empty() && !out.iter().any(|x| x == &u) {
+                out.push(u);
+            }
+        }
+    };
+    push_opt(gitee);
+    push_opt(github);
+    push_opt(server);
+    if out.is_empty() && !primary.is_empty() {
+        out.push(primary.to_string());
+    } else if !primary.is_empty()
+        && classify(primary) == "other"
+        && !out.iter().any(|x| x == primary)
+    {
+        out.push(primary.to_string());
     }
     out
 }
@@ -358,20 +539,35 @@ fn sha256_hex(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn download_one_url(
+fn download_one_url_once(
     client: &reqwest::blocking::Client,
     url: &str,
     dest: &Path,
     expect_sha: &str,
 ) -> Result<()> {
     info!(url = %url, dest = %dest.display(), "下载更新包");
-    let mut resp = client.get(url).send().context("下载更新包")?;
+    let mut resp = client
+        .get(url)
+        .header(reqwest::header::CACHE_CONTROL, "no-cache")
+        .send()
+        .context("下载更新包")?;
     if !resp.status().is_success() {
         bail!("HTTP {}", resp.status());
     }
+    let expect_len = resp.content_length();
     let mut file = File::create(dest)?;
-    io::copy(&mut resp, &mut file)?;
+    let written = io::copy(&mut resp, &mut file).context("写入更新包")?;
     file.flush()?;
+    drop(file);
+    if let Some(n) = expect_len {
+        if written != n {
+            let _ = fs::remove_file(dest);
+            bail!("下载不完整（期望 {n} 字节，实际 {written}）");
+        }
+    } else if written < 1024 {
+        let _ = fs::remove_file(dest);
+        bail!("下载异常过小（{written} 字节），可能不是更新包");
+    }
     if !expect_sha.is_empty() {
         let got = sha256_hex(dest)?;
         if got != expect_sha {
@@ -383,8 +579,39 @@ fn download_one_url(
     Ok(())
 }
 
+fn download_one_url(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    dest: &Path,
+    expect_sha: &str,
+) -> Result<()> {
+    const ATTEMPTS: u32 = 3;
+    let mut last = None;
+    for attempt in 1..=ATTEMPTS {
+        if dest.exists() {
+            let _ = fs::remove_file(dest);
+        }
+        match download_one_url_once(client, url, dest, expect_sha) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                warn!(
+                    url = %url,
+                    attempt,
+                    err = %format!("{e:#}"),
+                    "下载失败，将重试"
+                );
+                last = Some(e);
+                if attempt < ATTEMPTS {
+                    std::thread::sleep(Duration::from_millis(400 * u64::from(attempt)));
+                }
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| anyhow::anyhow!("下载失败")))
+}
+
 /// 下载资源到暂存目录，返回本地文件路径。
-/// GitHub / Gitee 镜像并行下载，先成功（且校验通过）者优先。
+/// 按主 URL → 镜像顺序尝试（每地址最多 3 次）；避免双镜像并行把弱网带宽打爆导致截断。
 pub fn download_asset(info: &AvailableUpdate) -> Result<PathBuf> {
     let dir = reset_staging()?;
     let dest = dir.join(&info.asset_name);
@@ -395,29 +622,16 @@ pub fn download_asset(info: &AvailableUpdate) -> Result<PathBuf> {
 
     let client = reqwest::blocking::Client::builder()
         .user_agent(UA)
-        .timeout(std::time::Duration::from_secs(600))
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(600))
         .redirect(reqwest::redirect::Policy::limited(8))
         .build()?;
 
-    let (tx, rx) = mpsc::channel();
-    let n = urls.len();
-    for (i, url) in urls.into_iter().enumerate() {
-        let tx = tx.clone();
-        let client = client.clone();
-        let part = dir.join(format!("part_{i}_{}", info.asset_name));
-        let sha = info.sha256.clone();
-        std::thread::spawn(move || {
-            let result = download_one_url(&client, &url, &part, &sha).map(|_| (url, part));
-            let _ = tx.send(result);
-        });
-    }
-    drop(tx);
-
     let mut errors = Vec::new();
-    let mut remaining = n;
-    while remaining > 0 {
-        match rx.recv() {
-            Ok(Ok((url, part))) => {
+    for (i, url) in urls.into_iter().enumerate() {
+        let part = dir.join(format!("part_{i}_{}", info.asset_name));
+        match download_one_url(&client, &url, &part, &info.sha256) {
+            Ok(()) => {
                 if part != dest {
                     fs::rename(&part, &dest)
                         .or_else(|_| {
@@ -430,11 +644,10 @@ pub fn download_asset(info: &AvailableUpdate) -> Result<PathBuf> {
                 info!(url = %url, dest = %dest.display(), "更新包下载完成");
                 return Ok(dest);
             }
-            Ok(Err(e)) => {
-                errors.push(format!("{e:#}"));
-                remaining -= 1;
+            Err(e) => {
+                let _ = fs::remove_file(&part);
+                errors.push(format!("{url} → {e:#}"));
             }
-            Err(_) => break,
         }
     }
     bail!(
@@ -853,6 +1066,10 @@ mod tests {
         assert!(is_newer("v2.1.0", "2.0.9"));
         assert!(!is_newer("2.0.0", "2.0.0"));
         assert!(!is_newer("1.9.9", "2.0.0"));
+        assert_eq!(parse_semver("2.3.2-beta"), Some((2, 3, 2)));
+        assert_eq!(parse_semver("2.3.2-beta.1"), Some((2, 3, 2)));
+        assert!(is_newer("2.3.2-beta", "2.3.1"));
+        assert!(is_newer("2.3.3-beta", "2.3.2-beta"));
     }
 
     #[test]
@@ -870,16 +1087,49 @@ mod tests {
     }
 
     #[test]
-    fn mirror_urls_gitee_and_github() {
+    fn mirror_urls_gitee_first_then_github() {
         let gitee = "https://gitee.com/jian0786/starquake/releases/download/v2.2.2/a.zip";
         let urls = asset_mirror_urls(gitee);
-        assert_eq!(urls.len(), 2);
-        assert!(urls.iter().any(|u| u.contains("github.com/Jian11323")));
-        assert!(urls.iter().any(|u| u.contains("gitee.com/jian0786")));
+        assert!(urls.len() >= 2, "{urls:?}");
+        assert!(urls[0].contains("gitee.com/jian0786"), "{urls:?}");
+        assert!(urls[1].contains("github.com/Jian11323"), "{urls:?}");
 
         let github = "https://github.com/Jian11323/StarQuake/releases/download/v2.2.2/a.zip";
         let urls2 = asset_mirror_urls(github);
-        assert_eq!(urls2.len(), 2);
+        assert!(urls2.len() >= 2, "{urls2:?}");
+        assert!(urls2[0].contains("gitee.com/jian0786"), "{urls2:?}");
+        assert!(urls2[1].contains("github.com/Jian11323"), "{urls2:?}");
+    }
+
+    #[test]
+    fn pick_newest_same_version_prefers_gitee() {
+        let gh = UpdateManifest {
+            latest_version: "2.3.1".into(),
+            min_supported_version: String::new(),
+            channel: "stable".into(),
+            installer: None,
+            zip: None,
+            linux: None,
+            notes: "from-github".into(),
+            release_notes_url: String::new(),
+            html_url: String::new(),
+        };
+        let mut gt = gh.clone();
+        gt.notes = "from-gitee".into();
+        let cands = vec![
+            (
+                "https://raw.githubusercontent.com/Jian11323/StarQuake/main/update/manifest.json"
+                    .into(),
+                gh,
+            ),
+            (
+                "https://gitee.com/jian0786/starquake/raw/master/update/manifest.json".into(),
+                gt,
+            ),
+        ];
+        let (url, m) = pick_newest_manifest(&cands).unwrap();
+        assert!(url.contains("gitee.com"), "{url}");
+        assert_eq!(m.notes, "from-gitee");
     }
 
     #[test]
@@ -955,20 +1205,105 @@ mod tests {
     }
 
     #[test]
-    fn pick_platform_prefers_installer_when_e2e_flag() {
+    fn pick_newest_ignores_stale_mirror() {
+        let stale = UpdateManifest {
+            latest_version: "2.3.0".into(),
+            min_supported_version: String::new(),
+            channel: "stable".into(),
+            installer: None,
+            zip: Some(ManifestAsset {
+                url: "https://example.com/old.zip".into(),
+                sha256: "aa".into(),
+            }),
+            linux: None,
+            notes: String::new(),
+            release_notes_url: String::new(),
+            html_url: String::new(),
+        };
+        let fresh = UpdateManifest {
+            latest_version: "2.3.1".into(),
+            min_supported_version: String::new(),
+            channel: "stable".into(),
+            installer: None,
+            zip: Some(ManifestAsset {
+                url: "https://example.com/new.zip".into(),
+                sha256: "bb".into(),
+            }),
+            linux: None,
+            notes: String::new(),
+            release_notes_url: String::new(),
+            html_url: String::new(),
+        };
+        let cands = vec![
+            ("https://stale/main".into(), stale),
+            ("https://fresh/master".into(), fresh),
+        ];
+        let (url, m) = pick_newest_manifest(&cands).unwrap();
+        assert_eq!(url, "https://fresh/master");
+        assert_eq!(m.latest_version, "2.3.1");
+        assert_eq!(m.zip.unwrap().sha256, "bb");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn pick_platform_installer_channel_no_zip_fallback() {
         let raw = r#"{
           "latest_version": "2.2.3",
           "zip": { "url": "https://example.com/a.zip", "sha256": "" },
           "installer": { "url": "https://example.com/a_setup.exe", "sha256": "" }
         }"#;
         let m: UpdateManifest = serde_json::from_str(raw).unwrap();
-        std::env::set_var("STARQUAKE_UPDATE_E2E", "1");
-        std::env::set_var("STARQUAKE_UPDATE_PREFER_INSTALLER", "1");
-        let (asset, name) = pick_platform_asset(&m).unwrap();
-        std::env::remove_var("STARQUAKE_UPDATE_PREFER_INSTALLER");
-        std::env::remove_var("STARQUAKE_UPDATE_E2E");
+        let (asset, name) =
+            pick_platform_asset_for(&m, WinUpdateChannel::Installer).unwrap();
         assert!(asset.url.contains("setup.exe"), "{asset:?}");
         assert!(name.to_ascii_lowercase().ends_with(".exe"));
+        assert!(!asset.url.contains(".zip"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn pick_platform_portable_channel_no_installer_fallback() {
+        let raw = r#"{
+          "latest_version": "2.2.3",
+          "zip": { "url": "https://example.com/a.zip", "sha256": "aa" },
+          "installer": { "url": "https://example.com/a_setup.exe", "sha256": "bb" }
+        }"#;
+        let m: UpdateManifest = serde_json::from_str(raw).unwrap();
+        let (asset, name) =
+            pick_platform_asset_for(&m, WinUpdateChannel::Portable).unwrap();
+        assert!(asset.url.ends_with("a.zip"), "{asset:?}");
+        assert_eq!(asset.sha256, "aa");
+        assert!(name.to_ascii_lowercase().ends_with(".zip"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn pick_platform_installer_missing_does_not_use_zip() {
+        let raw = r#"{
+          "latest_version": "2.2.3",
+          "zip": { "url": "https://example.com/a.zip", "sha256": "" }
+        }"#;
+        let m: UpdateManifest = serde_json::from_str(raw).unwrap();
+        let err = pick_platform_asset_for(&m, WinUpdateChannel::Installer)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("安装包版"), "{err}");
+        assert!(!err.to_ascii_lowercase().contains("a.zip"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn pick_platform_portable_missing_does_not_use_installer() {
+        let raw = r#"{
+          "latest_version": "2.2.3",
+          "installer": { "url": "https://example.com/a_setup.exe", "sha256": "" }
+        }"#;
+        let m: UpdateManifest = serde_json::from_str(raw).unwrap();
+        let err = pick_platform_asset_for(&m, WinUpdateChannel::Portable)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("便携版"), "{err}");
+        assert!(!err.contains("setup.exe"), "{err}");
     }
 
 }

@@ -25,6 +25,8 @@ static TRAY_HWND: AtomicIsize = AtomicIsize::new(0);
 static TRAY_UID: AtomicU32 = AtomicU32::new(0);
 static FORCE_QUIT: AtomicBool = AtomicBool::new(false);
 static HIDDEN_TO_TRAY: AtomicBool = AtomicBool::new(false);
+/// 最小化（任务栏）：与托盘隐藏一样需要 heartbeat 唤醒 update，否则网络/音效停摆。
+static MINIMIZED_BG: AtomicBool = AtomicBool::new(false);
 static HEARTBEAT_STARTED: AtomicBool = AtomicBool::new(false);
 
 pub fn set_main_hwnd(hwnd: isize) {
@@ -43,6 +45,14 @@ pub fn request_force_quit() {
 
 pub fn set_hidden_to_tray(hidden: bool) {
     HIDDEN_TO_TRAY.store(hidden, Ordering::SeqCst);
+}
+
+pub fn set_minimized_bg(minimized: bool) {
+    MINIMIZED_BG.store(minimized, Ordering::SeqCst);
+}
+
+fn needs_background_heartbeat() -> bool {
+    HIDDEN_TO_TRAY.load(Ordering::SeqCst) || MINIMIZED_BG.load(Ordering::SeqCst)
 }
 
 pub struct TrayHandle {
@@ -99,7 +109,7 @@ fn ensure_heartbeat(wake: Arc<Mutex<Option<egui::Context>>>) {
     std::thread::Builder::new()
         .name("tray-heartbeat".into())
         .spawn(move || loop {
-            if HIDDEN_TO_TRAY.load(Ordering::SeqCst) {
+            if needs_background_heartbeat() {
                 wake_ui(&wake);
                 std::thread::sleep(Duration::from_millis(200));
             } else {

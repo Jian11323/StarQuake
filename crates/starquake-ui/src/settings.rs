@@ -2140,7 +2140,7 @@ row_divider(ui);
             toggle(ui, &mut draft.ui.show_sidebar);
         });
         row_divider(ui);
-        control_row(ui, "分离侧栏", "独立窗口显示列表（对齐 eewcn）；竖屏时内嵌为底栏", "\u{25ce}", |ui| {
+        control_row(ui, "分离侧栏", "也可拖动侧栏标题分离；分离后双击标题嵌回；竖屏时内嵌为底栏", "\u{25ce}", |ui| {
             let before = draft.ui.sidebar_detached;
             toggle(ui, &mut draft.ui.sidebar_detached);
             if draft.ui.sidebar_detached && !before {

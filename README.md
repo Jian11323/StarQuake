@@ -12,7 +12,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" /></a>
   <img src="https://img.shields.io/badge/Rust-1.70%2B-orange.svg" alt="Rust" />
   <img src="https://img.shields.io/badge/Platform-Windows-0078D6.svg" alt="Windows" />
-  <img src="https://img.shields.io/badge/Release-2.3.1-informational.svg" alt="2.3.1" />
+  <img src="https://img.shields.io/badge/Release-2.3.2--beta-informational.svg" alt="2.3.2-beta" />
 </p>
 
 <p align="center">
@@ -68,7 +68,7 @@
 - 预警/速报 TTS：本机离线语音包（Windows SAPI）或微软 Edge 在线 Neural TTS
 - 各数据源健康状态：**正常** / **波动** / **异常**
 - 界面语言切换：简体中文 / 繁体中文 / 日本語 / English（设置 → 通用）
-- 右侧情报侧栏可开关（设置、向右/向下拖关闭或右缘拉开）；可分离为独立窗口；竖屏时内嵌为底栏；地图 HUD（预警条/图例/倒计时）随视口高度缩放；关闭或分离后地图右键可打开设置、侧栏、跳转所在地、图例、设置所在地与关于
+- 右侧情报侧栏可开关（设置、向右/向下拖关闭或右缘拉开）；拖动标题可分离为独立窗口（嵌回：按钮 / 双击标题 / 拖近主窗右侧 / 关浮窗）；竖屏时内嵌为底栏；列表按 eewcn 方式随宽度换行重排行高（不缩放字号）；地图预警条/海啸条/右上实时震度与台风在小视口缩小、大屏保持设计尺寸（图例与右下时钟固定）；关闭或分离后地图右键可打开设置、侧栏、跳转所在地、图例、设置所在地与关于
 - 主窗内嵌设置（数据源、地图与显示、音频、性能、高级、通知中心、关于）
 - 官方通知中心：每 15 秒拉取 [Jian Project 通知](https://api.sismotide.top/api/v1/notifications/updates)，未读弹窗 + 设置页列表（与地震情报实况栏共用）
 - 自定义告警音：NHK 一级新闻铃、JMA 警报音、津波紧急警报放送；可开关
@@ -120,7 +120,7 @@
 - [OPEN EEWCN](https://github.com/OpenEEWCN/eewcn)
 - [GlobalQuake 0.11](https://github.com/OpenEEWCN/eewcn)
 
-第三方素材（音效、走时表、底图矢量、断层、字体、地图标记等）不随代码许可证覆盖，请遵循各自上游许可；SREV 音效为 CC BY-SA 2.0，须署名。震度色参考气象厅配色；中国烈度色按 GB/T 相关制图规范摘录。
+第三方素材（音效、走时表、底图矢量、断层、字体、地图标记等）不随代码许可证覆盖，请遵循各自上游许可；SREV 音效为 CC BY-SA 2.0，须署名。列表/图例震度色与 `icon/intensity` 图标一致；中国烈度色对齐 EEWCN；测站点仍用 NIED 計測色带。
 
 ---
 

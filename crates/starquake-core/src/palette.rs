@@ -1,7 +1,7 @@
 //! 官方震度/烈度色。
 //!
-//! 震度計測色带与中国烈度色对齐 EEWCN（`getNiedStationColor` / `getIntColors`）。
-//! 离散 JMA 震度阶级色仍参考气象厅配色指针；中国烈度见 media/palette/cn_intensity.toml。
+//! 中国烈度色对齐 EEWCN（`getIntColors`）；离散 JMA 震度色与 `icon/intensity/shindo` SVG 主色一致。
+//! 测站計測色带仍对齐 EEWCN `getNiedStationColor`（仅测站点，不用于列表/图例右列）。
 
 use crate::IntensityKind;
 
@@ -22,19 +22,19 @@ impl Rgb {
     }
 }
 
-/// JMA 震度 0–9：0,1,2,3,4,5弱,5强,6弱,6强,7
+/// JMA 震度 0–9：0,1,2,3,4,5弱,5强,6弱,6强,7（与 shindo SVG 主色一致）
 pub fn jma_shindo_rgb(level: u8) -> Rgb {
     match level.min(9) {
-        0 => Rgb::new(64, 64, 64),
-        1 => Rgb::new(242, 242, 255),
-        2 => Rgb::new(0, 170, 255),
-        3 => Rgb::new(0, 65, 255),
-        4 => Rgb::new(250, 230, 150),
-        5 => Rgb::new(255, 230, 0),   // 5弱
-        6 => Rgb::new(255, 153, 0),   // 5强
-        7 => Rgb::new(255, 40, 0),    // 6弱
-        8 => Rgb::new(165, 0, 33),    // 6强
-        _ => Rgb::new(180, 0, 104),   // 7
+        0 => Rgb::new(0x86, 0x86, 0x86),
+        1 => Rgb::new(0x66, 0x66, 0x66),
+        2 => Rgb::new(0x1F, 0x7B, 0xFE),
+        3 => Rgb::new(0x2F, 0xB5, 0x6C),
+        4 => Rgb::new(0xFE, 0xB8, 0x01),
+        5 => Rgb::new(0xFD, 0xAA, 0x11), // 5弱
+        6 => Rgb::new(0xF0, 0x6F, 0x14), // 5强
+        7 => Rgb::new(0xFD, 0x00, 0x00), // 6弱
+        8 => Rgb::new(0x9F, 0x00, 0x02), // 6强
+        _ => Rgb::new(0x5D, 0x00, 0x8D), // 7
     }
 }
 

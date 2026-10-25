@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn loads_workspace_catalog() {
         let cat = SoundCatalog::load(catalog_path()).expect("catalog");
-        assert!(cat.version >= 2);
+        assert!(cat.version >= 7);
         assert_eq!(cat.pack_for_route("default_eew"), Some("eewcn"));
         assert_eq!(cat.pack_for_route("jma_eew"), Some("srev"));
         assert_eq!(cat.pack_for_route("record"), Some("eewcn"));

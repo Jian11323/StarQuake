@@ -310,6 +310,83 @@ mod tests {
         assert!((a - b).abs() < 1e-9, "floor@5km: {a} vs {b}");
     }
 
+    /// 大网格：对照旧下限 0.1km，统计虚高比例；现行 5km 下限不得再爆。
+    #[test]
+    fn csis_large_grid_shallow_floor() {
+        fn legacy_floor01(m: f64, d: f64, s: f64) -> f64 {
+            let dist = s.max(0.0).hypot(d.max(0.0)).max(0.1);
+            (1.92 + 1.63 * m - 3.49 * (dist.ln() / LN_10)).max(0.0)
+        }
+
+        let mut total = 0u32;
+        let mut risk = 0u32; // M≤4.5 且震源距 hypot<5（旧下限会顶到 0.1）
+        let mut legacy_hi = 0u32; // 旧式连续值 ≥8
+        let mut now_hi = 0u32;
+        let mut now_max = 0.0_f64;
+        let mut legacy_max = 0.0_f64;
+        let mut worst_now = (0.0, 0.0, 0.0, 0.0);
+        let mut worst_legacy = (0.0, 0.0, 0.0, 0.0);
+
+        // M 1.0–7.0 / 0.1；深度与地表距覆盖极浅→远场
+        let depths = [
+            0.0, 0.1, 0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 10.0, 15.0, 20.0, 30.0, 50.0, 100.0,
+        ];
+        let surfaces = [
+            0.0, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0,
+        ];
+        // 1.0..=7.0 步长 0.1 → 61 档，避免浮点累加漂移
+        for mi in 10..=70 {
+            let m = mi as f64 / 10.0;
+            for &d in &depths {
+                for &s in &surfaces {
+                    total += 1;
+                    let now = calc_csis(m, d, s);
+                    let old = legacy_floor01(m, d, s);
+                    if now > now_max {
+                        now_max = now;
+                        worst_now = (m, d, s, now);
+                    }
+                    if old > legacy_max {
+                        legacy_max = old;
+                        worst_legacy = (m, d, s, old);
+                    }
+                    let hypo = s.max(0.0).hypot(d.max(0.0));
+                    if m <= 4.5 && hypo < 5.0 {
+                        risk += 1;
+                        if old >= 8.0 {
+                            legacy_hi += 1;
+                        }
+                        if now >= 8.0 {
+                            now_hi += 1;
+                        }
+                        assert!(
+                            now < 8.0,
+                            "grid explode M{m} d={d} s={s} I={now}"
+                        );
+                        if s == 0.0 {
+                            let (lv, _) =
+                                estimate_epicentral(IntensityKind::CnIntensity, m, d);
+                            assert!(lv <= 7, "epi lv={lv} M{m}@{d}");
+                        }
+                    }
+                }
+            }
+        }
+
+        eprintln!(
+            "csis_large_grid: total={total} risk_cells(M<=4.5,hypo<5)={risk} \
+             legacy_I>=8: {legacy_hi}/{risk} now_I>=8: {now_hi}/{risk} \
+             now_max={now_max:.3}@{worst_now:?} legacy_max={legacy_max:.3}@{worst_legacy:?}"
+        );
+        assert!(total >= 5_000, "expected large grid, got {total}");
+        assert!(risk >= 200, "expected many near-field low-M cells, got {risk}");
+        assert!(
+            legacy_hi > 0,
+            "legacy 0.1km floor should still explode on this grid"
+        );
+        assert_eq!(now_hi, 0, "current 5km floor must not explode");
+    }
+
     #[test]
     fn jma_small_quake_low_shindo() {
         let (lv, text) = estimate_epicentral(IntensityKind::JmaShindo, 2.9, 10.0);

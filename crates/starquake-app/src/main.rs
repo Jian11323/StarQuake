@@ -120,6 +120,7 @@ fn install_cjk_fonts(ctx: &egui::Context) {
 }
 
 fn window_title() -> String {
+    // 版本号本身带 `-beta`（后续发版一律 Beta，不再标正式版）
     format!(
         "{} v{}",
         starquake_ui::APP_DISPLAY_NAME,
@@ -790,12 +791,15 @@ impl eframe::App for StarQuakeApp {
         }
 
         let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+        tray::set_minimized_bg(minimized && !self.hidden_to_tray);
         let backgrounded = self.hidden_to_tray || minimized;
         if backgrounded {
             if !self.bg_tiles_cleared {
                 self.shell.map.clear_tile_cache();
                 self.bg_tiles_cleared = true;
             }
+            // 后台仍要及时处理 net_rx / 音效；勿被 Idle 降到数秒一帧
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
         } else {
             self.bg_tiles_cleared = false;
         }
@@ -1080,11 +1084,14 @@ impl eframe::App for StarQuakeApp {
                         .as_ref()
                         .is_some_and(|a| is_eew_camera_target(a) && same_eew_event(a, ev));
                     if is_new_event {
-                        // 新预警：强制飞跃（无视用户拖拽锁定）——对齐 GQ 仅首报跳
-                        let z = gq_jump_zoom();
-                        self.shell.map.fly_to(ev.longitude, ev.latitude, Some(z), 0.9);
-                        self.shell.map.user_camera_override = false;
-                        self.shell.map.last_user_camera_at = None;
+                        // 新预警：默认飞跃；震中已在近距则只切 active，保持缩放（防相近源反复拉 Z11）
+                        let prev = self.snap.active.as_ref().filter(|a| is_eew_camera_target(a));
+                        if !skip_eew_camera_jump(&self.shell.map, ev, prev) {
+                            let z = gq_jump_zoom();
+                            self.shell.map.fly_to(ev.longitude, ev.latitude, Some(z), 0.9);
+                            self.shell.map.user_camera_override = false;
+                            self.shell.map.last_user_camera_at = None;
+                        }
                         self.last_follow_key = Some(key);
                         self.last_follow_cinema = Some(ck);
                         self.cinema_idx = 0;
@@ -1169,11 +1176,23 @@ impl eframe::App for StarQuakeApp {
                     if let Some(idx) = jump_idx {
                         if is_new_arrival || !self.shell.map.user_camera_override {
                             let ev = live[idx];
-                            let z = gq_jump_zoom();
-                            self.shell.map.fly_to(ev.longitude, ev.latitude, Some(z), 0.9);
-                            if is_new_arrival {
-                                self.shell.map.user_camera_override = false;
-                                self.shell.map.last_user_camera_at = None;
+                            let prev = self
+                                .snap
+                                .active
+                                .as_ref()
+                                .filter(|a| is_eew_camera_target(a))
+                                .or_else(|| {
+                                    live.get(self.cinema_idx.min(live.len().saturating_sub(1)))
+                                        .copied()
+                                });
+                            let near = skip_eew_camera_jump(&self.shell.map, ev, prev);
+                            if !near {
+                                let z = gq_jump_zoom();
+                                self.shell.map.fly_to(ev.longitude, ev.latitude, Some(z), 0.9);
+                                if is_new_arrival {
+                                    self.shell.map.user_camera_override = false;
+                                    self.shell.map.last_user_camera_at = None;
+                                }
                             }
                             self.last_follow_key = Some((ev.event_id.clone(), ev.serial));
                             self.last_follow_cinema = Some(cinema_event_key(ev));
@@ -2120,6 +2139,40 @@ fn is_eew_camera_target(e: &EewReport) -> bool {
 /// 预警跟焦落地固定 Z11；落地后由 auto_zoom 从 Z11 缓慢线性跟 S 波缩小。
 fn gq_jump_zoom() -> f64 {
     11.0
+}
+
+/// 震中相近（约 250km）：影院轮播 / 新源到达时不飞跃、不重拉 Z11，只切 active。
+const NEAR_EPICENTER_KM: f64 = 250.0;
+
+fn haversine_km(lon0: f64, lat0: f64, lon1: f64, lat1: f64) -> f64 {
+    let r = 6371.0_f64;
+    let to_r = |d: f64| d.to_radians();
+    let dlat = to_r(lat1 - lat0);
+    let dlon = to_r(lon1 - lon0);
+    let a = (dlat * 0.5).sin().powi(2)
+        + to_r(lat0).cos() * to_r(lat1).cos() * (dlon * 0.5).sin().powi(2);
+    2.0 * r * a.sqrt().asin()
+}
+
+fn epicenters_near(lon0: f64, lat0: f64, lon1: f64, lat1: f64) -> bool {
+    haversine_km(lon0, lat0, lon1, lat1) <= NEAR_EPICENTER_KM
+}
+
+/// 目标震中与当前镜头或上一跟焦震中相近时跳过 fly_to。
+fn skip_eew_camera_jump(
+    map: &starquake_map::MapViewport,
+    target: &EewReport,
+    prev: Option<&EewReport>,
+) -> bool {
+    if epicenters_near(map.center_lon, map.center_lat, target.longitude, target.latitude) {
+        return true;
+    }
+    if let Some(p) = prev {
+        if epicenters_near(p.longitude, p.latitude, target.longitude, target.latitude) {
+            return true;
+        }
+    }
+    false
 }
 
 fn tsunami_audio_grade(grade: &str) -> u8 {

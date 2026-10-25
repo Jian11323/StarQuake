@@ -440,6 +440,11 @@ impl VectorBasemap {
         self.paint_cache = None;
     }
 
+    /// 飞跃落地 / 大跨度平移后丢弃可复用 mesh，强制按当前视口重镶嵌。
+    pub fn invalidate_paint_cache(&mut self) {
+        self.paint_cache = None;
+    }
+
     /// 主线程每帧拉取后台结果；有更新时返回 true。
     pub fn poll(&mut self) -> bool {
         let Some(rx) = self.rx.take() else {
@@ -589,7 +594,7 @@ impl VectorBasemap {
             self.paint_cache = None;
         }
 
-        // 平面同缩放：平移复用 mesh（非飞跃轻量）
+        // 平面同缩放：小幅平移可复用 mesh；超过视口约 28% 必须重建，否则新露出岸线（如海南）进不了 mesh
         let can_shift = self.paint_cache.as_ref().is_some_and(|c| {
             !view.mode.is_globe()
                 && !c.fly_lite
@@ -599,14 +604,19 @@ impl VectorBasemap {
         if can_shift {
             if let Some(c) = self.paint_cache.as_mut() {
                 if let Some((dx, dy)) = vector_flat_pan_delta(c.mesh_lon, c.mesh_lat, view) {
-                    if dx.abs() > 0.05 || dy.abs() > 0.05 {
-                        Arc::make_mut(&mut c.mesh).translate(egui::Vec2::new(dx, dy));
-                        c.mesh_lon = view.center_lon;
-                        c.mesh_lat = view.center_lat;
+                    let shift_limit = rect.width().max(rect.height()) * 0.28;
+                    if dx.abs() > shift_limit || dy.abs() > shift_limit {
+                        // 落入下方完整重建
+                    } else {
+                        if dx.abs() > 0.05 || dy.abs() > 0.05 {
+                            Arc::make_mut(&mut c.mesh).translate(egui::Vec2::new(dx, dy));
+                            c.mesh_lon = view.center_lon;
+                            c.mesh_lat = view.center_lat;
+                        }
+                        c.key = cache_key;
+                        painter.add(egui::Shape::Mesh(c.mesh.clone()));
+                        return;
                     }
-                    c.key = cache_key;
-                    painter.add(egui::Shape::Mesh(c.mesh.clone()));
-                    return;
                 }
             }
         }
@@ -2575,8 +2585,9 @@ fn viewport_bounds(center_lon: f64, center_lat: f64, zoom: f64, rect: Rect) -> (
         max_lon = max_lon.max(lon);
         max_lat = max_lat.max(lat);
     }
-    let pad_lon = (max_lon - min_lon) * 0.05;
-    let pad_lat = (max_lat - min_lat) * 0.05;
+    // 裁剪边距加宽：平移复用 mesh 时边缘新露出的省级岸线仍在缓存里
+    let pad_lon = (max_lon - min_lon) * 0.45;
+    let pad_lat = (max_lat - min_lat) * 0.45;
     (
         min_lon - pad_lon,
         min_lat - pad_lat,

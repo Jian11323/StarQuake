@@ -22,7 +22,7 @@ pub enum AudioCue {
     Warn,
     /// 速报提示（Open EEW CN `newrecord.wav`）
     NewRecord,
-    /// 非 JMA 危急档（烈度≥7 或 M≥5 → `eewcritical.wav`）
+    /// 非 JMA 危急首报（M≥5 **或** 烈度≥7，满足其一 → `eewcritical.wav`）
     Critical,
     /// 本机 S 波抵达（`swavearrive.wav`）
     ArriveS,

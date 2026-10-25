@@ -4,6 +4,7 @@ members = [
     "crates/starquake-util",
     "crates/starquake-core",
     "crates/starquake-travel",
+    "crates/starquake-hypo",
     "crates/starquake-config",
     "crates/starquake-net",
     "crates/starquake-audio",
@@ -16,7 +17,7 @@ default-members = ["crates/starquake-app"]
 exclude = ["tools/gen_brand_icon"]
 
 [workspace.package]
-version = "2.3.1"
+version = "2.3.2-beta"
 edition = "2021"
 license = "Apache-2.0"
 authors = ["Jian11323"]
@@ -26,6 +27,7 @@ repository = "https://github.com/Jian11323/StarQuake"
 starquake-util = { path = "crates/starquake-util" }
 starquake-core = { path = "crates/starquake-core" }
 starquake-travel = { path = "crates/starquake-travel" }
+starquake-hypo = { path = "crates/starquake-hypo" }
 starquake-config = { path = "crates/starquake-config" }
 starquake-net = { path = "crates/starquake-net" }
 starquake-audio = { path = "crates/starquake-audio" }

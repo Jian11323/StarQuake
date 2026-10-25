@@ -1230,10 +1230,12 @@ fn circled_number_offset(index: usize) -> Vec2 {
 
 /// 各数据源最新预警叉标（无波圈；选中项带标签）。
 /// `show_cross`：有传播中波圈时按闪烁相位传入，对齐 eewcn。
+/// `marker_nums`：与 `markers` 等长；`Some(n)` 为与左上预警条一致的 ①②…（1-based）；空切片则按枚举回退。
 pub fn paint_eew_markers(
     ui: &mut Ui,
     view: &ViewCtx,
     markers: &[EewReport],
+    marker_nums: &[Option<usize>],
     selected: Option<(&str, &str)>,
     icons: Option<&MarkerIcons>,
     show_cross: bool,
@@ -1244,7 +1246,8 @@ pub fn paint_eew_markers(
     let rect = view.rect;
     let painter = ui.painter_at(rect);
     let pad = 28.0_f32;
-    let multi = markers.len() > 1;
+    let any_num = marker_nums.iter().any(|n| n.is_some_and(|v| v > 0))
+        || (marker_nums.is_empty() && markers.len() > 1);
     for (i, ev) in markers.iter().enumerate() {
         let Some(p) = view.project(ev.longitude, ev.latitude) else {
             continue;
@@ -1258,17 +1261,30 @@ pub fn paint_eew_markers(
         }
         let is_sel = selected == Some((ev.agency.0.as_str(), ev.event_id.as_str()));
         paint_epicenter_marker(&painter, view, icons, p, ev, is_sel, show_cross);
-        // 多震：①②③④…按出现顺序；与叉标同相位闪烁
-        if multi && show_cross {
-            let label = circled_index(i + 1).to_string();
-            let pos = p + circled_number_offset(i);
-            painter.text(
-                pos,
-                egui::Align2::CENTER_CENTER,
-                label,
-                egui::FontId::proportional(22.0),
-                Color32::WHITE,
-            );
+        // 多震序号：优先用与左上框对齐的编号
+        let num = marker_nums
+            .get(i)
+            .copied()
+            .flatten()
+            .or_else(|| {
+                if marker_nums.is_empty() && markers.len() > 1 {
+                    Some(i + 1)
+                } else {
+                    None
+                }
+            });
+        if any_num && show_cross {
+            if let Some(n) = num.filter(|n| *n > 0) {
+                let label = circled_index(n).to_string();
+                let pos = p + circled_number_offset(n.saturating_sub(1));
+                painter.text(
+                    pos,
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    egui::FontId::proportional(22.0),
+                    Color32::WHITE,
+                );
+            }
         }
     }
 }

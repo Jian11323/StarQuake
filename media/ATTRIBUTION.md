@@ -62,31 +62,21 @@
 
 全部音频文件平铺于 `media/sound/` 根目录（无子目录）。逻辑音效包由 `catalog.json` 的 `packs` 区分。路由说明见 [`docs/音效路由.md`](../docs/音效路由.md)。
 
-### SREV
+### SREV（JMA）
 
 | 项 | 内容 |
 |----|------|
 | 来源 | [kotoho7/scratch-realtime-earthquake-viewer-page](https://github.com/kotoho7/scratch-realtime-earthquake-viewer-page) |
 | 许可 | **CC BY-SA 2.0** |
-| 用途 | 预警发行 / 更新 / 震度 / 海啸（`issue.mp3` / `caution.mp3` / `warn.mp3` / `update.mp3` / `final.mp3` / `cancel.mp3` / `shindo*.mp3` / `tsunami*.mp3` 等） |
+| 用途 | JMA 预警 / 海啸：`issue.mp3` / `caution.mp3` / `warn.mp3` / `update.mp3` / `final.mp3` / `cancel.mp3` / `tsunami*.mp3` |
 
-署名示例：
-
-> JMA alert sounds: SREV / scratch-realtime-earthquake-viewer-page (CC BY-SA 2.0).
-
-### Open EEW CN
-
-| 项 | 内容 |
-|----|------|
-| 来源 | [OpenEEWCN/eewcn](https://github.com/OpenEEWCN/eewcn) `Media/` |
-| 许可 | 开发者授权用于 StarQuake；再分发请自行确认 |
-| 用途 | 非 JMA 预警 / 速报 / 本机 S 波抵达 |
+### Open EEW CN（非 JMA）
 
 | 文件 | 用途 |
 |------|------|
-| `eewalert.wav` | 预警：烈度 < 7 且震级 < M5 |
-| `eewcritical.wav` | 预警：烈度 ≥ 7 或震级 ≥ M5 |
-| `eewupdate.wav` | 预警更新 / 最终报（未达危急档时） |
+| `eewalert.wav` | 首报（未达危急）：震级 < M5 并且 烈度 < 7 |
+| `eewcritical.wav` | 危急首报：震级 ≥ M5 或者 烈度 ≥ 7（满足其一即可，不是且） |
+| `eewupdate.wav` | 更新报 / 最终报（危急档抬报也走此音，不再反复 critical） |
 | `newrecord.wav` | 速报 |
 | `swavearrive.wav` | 本机 S 波抵达 |
 
@@ -96,21 +86,14 @@
 |----|------|
 | 来源 | [地牛 Wake Up!](https://eew.earthquake.tw/) |
 | 许可 | **非自由许可**；版权归属原作者。公开再分发前须确认授权或更换素材 |
-| 用途 | 本地 S 波倒计时播报 |
 | 文件 | `countdown.wav`、`0s.mp3`…`10s.mp3`、`20s.mp3`…`60s.mp3` |
 | 仓库 | 上述文件已加入 `.gitignore`，不随公开仓库分发 |
 
-### 原创合成（回退 / 测站 / UI）
-
-由 `tools/synth_sounds.py` 合成，**CC0 1.0**。
+### UI
 
 | 文件 | 用途 |
 |------|------|
-| `issue.wav` / `update.wav` / `final.wav` / `cancel.wav` / `prompt.wav` | EEW 回退 |
-| `arrive_p.wav` / `arrive_s.wav` | P/S 波抵达回退 |
-| `weak.wav` / `mid.wav` / `strong.wav` | 测站 |
-| `connect_ok.wav` / `connect_fail.wav` / `notify.wav` | UI |
-
+| `connect_ok.wav` / `connect_fail.wav` / `notify.wav` | 连接成功/失败、台风列表变化提示（CC0 合成） |
 
 ## 自定义告警音（special/）
 
