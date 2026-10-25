@@ -1,21 +1,21 @@
 {
-  "latest_version": "2.3.2-beta",
+  "latest_version": "2.3.3-beta",
   "min_supported_version": "2.0.0",
   "channel": "beta",
-  "notes": "Beta 2.3.2：危急音效判定为 M≥5 或 烈度≥7（满足其一）；震中相近不反复跳转；预警条与地图①②编号对齐；最小化后台仍处理数据；托盘菜单；平面投影岸线刷新；清理无用音效。",
+  "notes": "Beta 2.3.3：自动更新下载进度与安装界面；气象卡片/筛选/轮播（地图不去测站色点）；本地震源推算紫叉接入；过期气象自动移除。",
   "installer": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/v2.3.2-beta/StarQuake_2.3.2-beta_setup.exe",
-    "sha256": "e8473070963ab021518ba7498c91cebdccfd26ac741ae6d6ef1e83f440de125b",
+    "url": "https://gitee.com/jian0786/starquake/releases/download/v2.3.3-beta/StarQuake_2.3.3-beta_setup.exe",
+    "sha256": "6447b0ee32614b255ee62f0bb9c0fbd9e68a2581bd988c92755d509bcbd665f8",
     "user_interface": "progress"
   },
   "zip": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/v2.3.2-beta/StarQuake_2.3.2-beta_portable.zip",
-    "sha256": "895db4eb983a3cecdde97d0acf45e004ffd34573b88d98b1e533ac9e9ea6e6c1"
+    "url": "https://gitee.com/jian0786/starquake/releases/download/v2.3.3-beta/StarQuake_2.3.3-beta_portable.zip",
+    "sha256": "4753715d97573ff3dd914babbeeddb47133fead3e64fbc830747fdb57c8563bf"
   },
   "linux": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/v2.3.2-beta/StarQuake_2.3.2-beta_linux_x86_64.tar.gz",
-    "sha256": "dcb9848dcbe4282f1707dab2b01a47ffc2329a46781aa907679d3d46e6f7148d"
+    "url": "https://gitee.com/jian0786/starquake/releases/download/v2.3.3-beta/StarQuake_2.3.3-beta_linux_x86_64.tar.gz",
+    "sha256": "5a443968db5722f63b149d83a567ae5e03ce650efb891747369715e806fed644"
   },
-  "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/v2.3.2-beta",
-  "html_url": "https://gitee.com/jian0786/starquake/releases/tag/v2.3.2-beta"
+  "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/v2.3.3-beta",
+  "html_url": "https://gitee.com/jian0786/starquake/releases/tag/v2.3.3-beta"
 }
