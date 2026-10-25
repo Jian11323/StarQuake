@@ -110,6 +110,12 @@ pub struct UiConfig {
     /// 右侧情报列表侧栏（可关；关闭后用地图右键菜单）
     #[serde(default = "default_true")]
     pub show_sidebar: bool,
+    /// 侧栏分离为独立窗口（对齐 eewcn QDock 浮动）
+    #[serde(default)]
+    pub sidebar_detached: bool,
+    /// 分离侧栏窗口几何（拖动/缩放后写入用户配置）
+    #[serde(default)]
+    pub sidebar_window: SidebarWindowConfig,
     pub intensity_scale: String,
     /// 主窗口始终置顶（对齐滚动字幕「窗口置顶」）
     #[serde(default)]
@@ -152,6 +158,37 @@ pub struct UiConfig {
     pub typhoon_forecast_agency: String,
 }
 
+
+/// 分离侧栏独立窗口几何。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SidebarWindowConfig {
+    #[serde(default = "default_sidebar_window_width")]
+    pub width: f32,
+    #[serde(default = "default_sidebar_window_height")]
+    pub height: f32,
+    #[serde(default)]
+    pub x: Option<f32>,
+    #[serde(default)]
+    pub y: Option<f32>,
+}
+
+fn default_sidebar_window_width() -> f32 {
+    280.0
+}
+fn default_sidebar_window_height() -> f32 {
+    640.0
+}
+
+impl Default for SidebarWindowConfig {
+    fn default() -> Self {
+        Self {
+            width: default_sidebar_window_width(),
+            height: default_sidebar_window_height(),
+            x: None,
+            y: None,
+        }
+    }
+}
 
 /// 主窗口几何；缺省由系统摆放，用户拖动/缩放后写入用户配置。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1066,6 +1103,8 @@ impl Default for AppConfig {
                 show_nied_clock: false,
                 sidebar_default_tab: "eew".into(),
                 show_sidebar: true,
+                sidebar_detached: false,
+                sidebar_window: SidebarWindowConfig::default(),
                 intensity_scale: "auto".into(),
                 always_on_top: false,
                 minimize_to_tray: true,

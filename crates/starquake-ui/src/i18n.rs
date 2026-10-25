@@ -322,6 +322,45 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "打开侧栏"), "開啟側欄");
         m.insert((Lang::Ja, "打开侧栏"), "サイドバーを開く");
         m.insert((Lang::En, "打开侧栏"), "Open sidebar");
+        m.insert((Lang::ZhTw, "分离侧栏"), "分離側欄");
+        m.insert((Lang::Ja, "分离侧栏"), "サイドバーを分離");
+        m.insert((Lang::En, "分离侧栏"), "Detach sidebar");
+        m.insert((Lang::ZhTw, "分离"), "分離");
+        m.insert((Lang::Ja, "分离"), "分離");
+        m.insert((Lang::En, "分离"), "Detach");
+        m.insert((Lang::ZhTw, "嵌回"), "嵌回");
+        m.insert((Lang::Ja, "嵌回"), "戻す");
+        m.insert((Lang::En, "嵌回"), "Dock");
+        m.insert((Lang::ZhTw, "分离为独立窗口"), "分離為獨立視窗");
+        m.insert((Lang::Ja, "分离为独立窗口"), "別ウィンドウに分離");
+        m.insert((Lang::En, "分离为独立窗口"), "Detach to separate window");
+        m.insert((Lang::ZhTw, "嵌回主窗口侧栏"), "嵌回主視窗側欄");
+        m.insert((Lang::Ja, "嵌回主窗口侧栏"), "メインウィンドウに戻す");
+        m.insert((Lang::En, "嵌回主窗口侧栏"), "Dock back to main window");
+        m.insert(
+            (Lang::ZhTw, "列表可关；向右/向下拖关闭；关闭后右缘拉开或地图右键"),
+            "列表可關；向右/向下拖關閉；關閉後右緣拉開或地圖右鍵",
+        );
+        m.insert(
+            (Lang::Ja, "列表可关；向右/向下拖关闭；关闭后右缘拉开或地图右键"),
+            "リストを閉じ可。右/下へドラッグで閉じ、端から再開または地図右クリック",
+        );
+        m.insert(
+            (Lang::En, "列表可关；向右/向下拖关闭；关闭后右缘拉开或地图右键"),
+            "Hideable list; drag right/down to close; reopen from edge or map menu",
+        );
+        m.insert(
+            (Lang::ZhTw, "独立窗口显示列表（对齐 eewcn）；竖屏时内嵌为底栏"),
+            "獨立視窗顯示列表（對齊 eewcn）；直向時內嵌為底欄",
+        );
+        m.insert(
+            (Lang::Ja, "独立窗口显示列表（对齐 eewcn）；竖屏时内嵌为底栏"),
+            "リストを別窓に（eewcn同様）。縦画面では下ドック",
+        );
+        m.insert(
+            (Lang::En, "独立窗口显示列表（对齐 eewcn）；竖屏时内嵌为底栏"),
+            "List in its own window (like eewcn); bottom dock in portrait",
+        );
         m.insert((Lang::ZhTw, "跳转所在地"), "跳轉所在地");
         m.insert((Lang::Ja, "跳转所在地"), "所在地へ移動");
         m.insert((Lang::En, "跳转所在地"), "Jump to location");

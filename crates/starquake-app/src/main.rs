@@ -463,8 +463,8 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
         options,
         Box::new(move |cc| {
             install_cjk_fonts(&cc.egui_ctx);
-            // 强制嵌入式 viewport，防止历史 set_embed_viewports(false) 残留逻辑
-            cc.egui_ctx.set_embed_viewports(true);
+            // 关闭嵌入式 viewport：侧栏分离时用真正的独立 OS 窗口
+            cc.egui_ctx.set_embed_viewports(false);
             let autotest = autotest::AutoTest::from_env(&root);
             Ok(Box::new(StarQuakeApp {
                 resource_root: root,
@@ -755,7 +755,8 @@ struct StarQuakeApp {
 
 impl eframe::App for StarQuakeApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        ctx.set_embed_viewports(true);
+        // 保持非嵌入，供分离侧栏 `show_viewport_immediate` 开独立窗
+        ctx.set_embed_viewports(false);
         self.capture_main_hwnd(frame);
         if let Some(tray) = self.tray.as_ref() {
             tray.bind_ctx(ctx);

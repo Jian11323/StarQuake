@@ -2136,8 +2136,16 @@ row_divider(ui);
     });
 
     section(ui, "界面偏好", "\u{2630}", |ui| {
-        control_row(ui, "显示侧栏", "右侧列表；可向右拖关闭，关闭后右缘拉开或地图右键", "\u{25ce}", |ui| {
+        control_row(ui, "显示侧栏", "列表可关；向右/向下拖关闭；关闭后右缘拉开或地图右键", "\u{25ce}", |ui| {
             toggle(ui, &mut draft.ui.show_sidebar);
+        });
+        row_divider(ui);
+        control_row(ui, "分离侧栏", "独立窗口显示列表（对齐 eewcn）；竖屏时内嵌为底栏", "\u{25ce}", |ui| {
+            let before = draft.ui.sidebar_detached;
+            toggle(ui, &mut draft.ui.sidebar_detached);
+            if draft.ui.sidebar_detached && !before {
+                draft.ui.show_sidebar = true;
+            }
         });
         row_divider(ui);
         control_row(ui, "东京时间", "主界面额外显示东京时间", "\u{25ce}", |ui| {

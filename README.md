@@ -68,7 +68,7 @@
 - 预警/速报 TTS：本机离线语音包（Windows SAPI）或微软 Edge 在线 Neural TTS
 - 各数据源健康状态：**正常** / **波动** / **异常**
 - 界面语言切换：简体中文 / 繁体中文 / 日本語 / English（设置 → 通用）
-- 右侧情报侧栏可开关（设置、向右拖关闭或右缘拉开）；关闭后地图右键可打开设置、跳转所在地、图例、设置所在地与关于
+- 右侧情报侧栏可开关（设置、向右/向下拖关闭或右缘拉开）；可分离为独立窗口；竖屏时内嵌为底栏；地图 HUD（预警条/图例/倒计时）随视口高度缩放；关闭或分离后地图右键可打开设置、侧栏、跳转所在地、图例、设置所在地与关于
 - 主窗内嵌设置（数据源、地图与显示、音频、性能、高级、通知中心、关于）
 - 官方通知中心：每 15 秒拉取 [Jian Project 通知](https://api.sismotide.top/api/v1/notifications/updates)，未读弹窗 + 设置页列表（与地震情报实况栏共用）
 - 自定义告警音：NHK 一级新闻铃、JMA 警报音、津波紧急警报放送；可开关
@@ -132,17 +132,6 @@
 - 以及各位给予帮助的 EEW 爱好者
 
 --- 
-
-## 开发自检
-
-- 全项目编排：python tools/full_qa.py（单测 → release 编译 → AUTOTEST → 测站验证 → 全源压测）
-- 仅压测：set EEWVIEW_STRESS=1&& set EEWVIEW_STRESS_FULL=1&& python tools/stress_live_sources.py
-- 仅测站：python tools/verify_station_adapters.py
-- 进程内巡检：set STARQUAKE_AUTOTEST=1&& target\release\starquake.exe
-
-报告写入 logs/full_qa_*.json / logs/stress_live_*.json（勿提交）。
-
----
 
 ## 注意事项
 

@@ -107,6 +107,8 @@ pub struct MainShell {
     notices: Vec<UserNotice>,
     /// 同类提示冷却，避免重连刷屏
     notice_seen: HashMap<String, Instant>,
+    /// 分离侧栏几何节流落盘
+    sidebar_geom_dirty_at: Option<Instant>,
 }
 
 impl Default for MainShell {
@@ -126,6 +128,7 @@ impl Default for MainShell {
             weather_icons: WeatherIconCache::default(),
             notices: Vec::new(),
             notice_seen: HashMap::new(),
+            sidebar_geom_dirty_at: None,
         }
     }
 }
@@ -217,15 +220,18 @@ impl MainShell {
             ctx.request_repaint_after(std::time::Duration::from_millis(ms));
         }
 
-        // SidePanel：可拖宽；向右拖窄过阈值即关闭；关闭后右缘拉开
+        // 侧栏：可拖宽关闭 / 竖屏底栏 / 可分离为独立 OS 窗口（对齐 eewcn QDock）
         let screen_w = ctx.screen_rect().width();
+        let screen_h = ctx.screen_rect().height();
         const MAP_MIN_W: f32 = 360.0;
+        const MAP_MIN_H: f32 = 240.0;
         const SIDE_IDEAL: f32 = 268.0;
         const SIDE_MIN: f32 = 176.0;
-        /// 允许拖到比内容更窄，便于继续向右拖到关闭
+        /// 允许拖到比内容更窄，便于继续向右/向下拖到关闭
         const SIDE_DRAG_MIN: f32 = 40.0;
         /// 目标宽度（或指针意图宽度）低于此则关闭
         const SIDE_CLOSE_W: f32 = 110.0;
+        const SIDE_CLOSE_H: f32 = 110.0;
         const SIDE_GRIP: f32 = 12.0;
         let sidebar_w = if screen_w < MAP_MIN_W + SIDE_MIN {
             (screen_w * 0.36).clamp(140.0, SIDE_MIN)
@@ -233,11 +239,142 @@ impl MainShell {
             let cap = (screen_w - MAP_MIN_W).min(SIDE_IDEAL);
             cap.min(screen_w * 0.27).max(SIDE_MIN)
         };
+        let sidebar_h = if screen_h < MAP_MIN_H + SIDE_MIN {
+            (screen_h * 0.36).clamp(140.0, SIDE_MIN)
+        } else {
+            let cap = (screen_h - MAP_MIN_H).min(SIDE_IDEAL + 40.0);
+            cap.min(screen_h * 0.34).max(SIDE_MIN)
+        };
         let mut side_action = None;
         let show_sidebar = cfg.ui.show_sidebar;
+        let sidebar_detached = cfg.ui.sidebar_detached;
+        let portrait = screen_h > screen_w;
         let sidebar_id = egui::Id::new("eew_sidebar");
+        let source_enabled = [
+            cfg.sources.jian.enabled,
+            cfg.sources.wolfx.enabled,
+            cfg.sources.p2pquake.enabled,
+            cfg.sources.pancakes.enabled,
+            cfg.sources.fssn.enabled,
+        ];
+        let show_volcanoes = cfg.ui.show_volcanoes;
 
-        if show_sidebar {
+        if show_sidebar && sidebar_detached {
+            let vp_id = egui::ViewportId::from_hash_of("starquake_sidebar");
+            let sw = &cfg.ui.sidebar_window;
+            let mut builder = egui::ViewportBuilder::default()
+                .with_title(crate::i18n::t("地震情报实况"))
+                .with_inner_size([
+                    sw.width.clamp(SIDE_MIN, 720.0),
+                    sw.height.clamp(240.0, 2400.0),
+                ])
+                .with_min_inner_size([SIDE_MIN, 240.0])
+                .with_close_button(true);
+            if let (Some(x), Some(y)) = (sw.x, sw.y) {
+                builder = builder.with_position([x, y]);
+            }
+            let mut detached_geom: Option<(f32, f32, Option<f32>, Option<f32>)> = None;
+            let mut close_requested = false;
+            ctx.show_viewport_immediate(vp_id, builder, |vp_ctx, _class| {
+                egui::CentralPanel::default()
+                    .frame(Frame::NONE.fill(p.sidebar_bg))
+                    .show(vp_ctx, |ui| {
+                        side_action = draw_sidebar(
+                            ui,
+                            &p,
+                            snap,
+                            scale.as_str(),
+                            &self.intensity_icons,
+                            &mut self.weather_icons,
+                            show_volcanoes,
+                            source_enabled,
+                            true,
+                        );
+                    });
+                let (w, h, x, y) = vp_ctx.input(|i| {
+                    let v = i.viewport();
+                    let inner = v.inner_rect.unwrap_or(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(280.0, 640.0),
+                    ));
+                    let (x, y) = v
+                        .outer_rect
+                        .map(|r| (Some(r.min.x.round()), Some(r.min.y.round())))
+                        .unwrap_or((None, None));
+                    (inner.width().round(), inner.height().round(), x, y)
+                });
+                if w >= 160.0 && h >= 200.0 {
+                    detached_geom = Some((w, h, x, y));
+                }
+                if vp_ctx.input(|i| i.viewport().close_requested()) {
+                    close_requested = true;
+                }
+            });
+            if let Some((w, h, x, y)) = detached_geom {
+                let sw = &mut cfg.ui.sidebar_window;
+                let changed = (sw.width - w).abs() > 0.5
+                    || (sw.height - h).abs() > 0.5
+                    || sw.x != x
+                    || sw.y != y;
+                if changed {
+                    sw.width = w;
+                    sw.height = h;
+                    sw.x = x;
+                    sw.y = y;
+                    self.sidebar_geom_dirty_at = Some(Instant::now());
+                }
+            }
+            if let Some(at) = self.sidebar_geom_dirty_at {
+                if at.elapsed() >= Duration::from_millis(600) {
+                    self.sidebar_geom_dirty_at = None;
+                    persist_cfg = true;
+                } else {
+                    ctx.request_repaint_after(Duration::from_millis(200));
+                }
+            }
+            if close_requested && side_action.is_none() {
+                side_action = Some(SideAction::CloseSidebar);
+            }
+        } else if show_sidebar && portrait {
+            let panel_resp = egui::TopBottomPanel::bottom(sidebar_id)
+                .default_height(sidebar_h)
+                .min_height(SIDE_DRAG_MIN)
+                .max_height((screen_h - MAP_MIN_H).clamp(SIDE_MIN, SIDE_IDEAL + 120.0))
+                .resizable(true)
+                .frame(Frame::NONE.fill(p.sidebar_bg))
+                .show(ctx, |ui| {
+                    side_action = draw_sidebar(
+                        ui,
+                        &p,
+                        snap,
+                        scale.as_str(),
+                        &self.intensity_icons,
+                        &mut self.weather_icons,
+                        show_volcanoes,
+                        source_enabled,
+                        false,
+                    );
+                });
+            let cur_h = panel_resp.response.rect.height();
+            let resize_id = sidebar_id.with("__resize");
+            let mut want_close = false;
+            if let Some(resize_resp) = ctx.read_response(resize_id) {
+                if resize_resp.dragged() || resize_resp.drag_stopped() {
+                    if let Some(pointer) = resize_resp.interact_pointer_pos() {
+                        let intent_h = (ctx.screen_rect().bottom() - pointer.y).max(0.0);
+                        if intent_h <= SIDE_CLOSE_H {
+                            want_close = true;
+                        }
+                    }
+                    if resize_resp.drag_stopped() && cur_h <= SIDE_CLOSE_H {
+                        want_close = true;
+                    }
+                }
+            }
+            if want_close && !matches!(side_action, Some(SideAction::CloseSidebar)) {
+                side_action = Some(SideAction::CloseSidebar);
+            }
+        } else if show_sidebar {
             let panel_resp = egui::SidePanel::right(sidebar_id)
                 .default_width(sidebar_w)
                 .min_width(SIDE_DRAG_MIN)
@@ -252,14 +389,9 @@ impl MainShell {
                         scale.as_str(),
                         &self.intensity_icons,
                         &mut self.weather_icons,
-                        cfg.ui.show_volcanoes,
-                        [
-                            cfg.sources.jian.enabled,
-                            cfg.sources.wolfx.enabled,
-                            cfg.sources.p2pquake.enabled,
-                            cfg.sources.pancakes.enabled,
-                            cfg.sources.fssn.enabled,
-                        ],
+                        show_volcanoes,
+                        source_enabled,
+                        false,
                     );
                 });
             // 向右拖窄：拖动中指针意图宽度过低，或松手时实际宽度过低 → 关闭
@@ -427,19 +559,27 @@ impl MainShell {
                         ));
                     }
                 }
+                // 对齐 eewcn getWindowZoom：HUD 随地图高度相对 480 缩放
+                let hud_z = hud_window_zoom(map_rect.height());
                 draw_map_load_banner(ui, &p, self.map.load_state(), self.map.load_status());
                 if let Some(kind) = self.settings.map_pick {
                     draw_map_pick_banner(ui, &p, kind);
                 }
-                if let Some((lon, lat, z)) =
-                    draw_event_header(ui, &p, snap, scale.as_str(), &self.intensity_icons, travel)
-                {
+                if let Some((lon, lat, z)) = draw_event_header(
+                    ui,
+                    &p,
+                    snap,
+                    scale.as_str(),
+                    &self.intensity_icons,
+                    travel,
+                    hud_z,
+                ) {
                     // 左上框点切换多震：跟焦并解除拖拽锁，便于 cinema 继续轮播
                     self.map.fly_to(lon, lat, Some(z), 0.9);
                     self.map.user_camera_override = false;
                     self.map.last_user_camera_at = None;
                 }
-                draw_tsunami_banner(ui, &p, snap, travel);
+                draw_tsunami_banner(ui, &p, snap, travel, hud_z);
                 let station_card_bottom = draw_realtime_intensity_card(ui, &p, snap);
                 let typhoon_fly = draw_typhoon_detail_below_stations(
                     ui,
@@ -464,7 +604,7 @@ impl MainShell {
                     self.map.fly_to_centered(lon, lat, Some(z), 1.0);
                 }
                 if cfg.ui.show_legend {
-                    draw_legend_bar(ui, &p);
+                    draw_legend_bar(ui, &p, hud_z);
                 }
                 // 本地未设经纬度时，用当前地图中心估算日出日落
                 let (sun_lat, sun_lon) = match (self.local_lat, self.local_lon) {
@@ -479,10 +619,11 @@ impl MainShell {
                     map_rect,
                     sun_lat,
                     sun_lon,
+                    hud_z,
                 );
 
-                // 侧栏关闭时：地图右键菜单（开着侧栏时不挂，避免挡列表）
-                let allow_ctx = !show_sidebar
+                // 侧栏关闭或已分离：地图右键菜单（内嵌侧栏打开时不挂，避免挡列表）
+                let allow_ctx = (!show_sidebar || sidebar_detached)
                     && !self.settings.open
                     && self.settings.map_pick.is_none();
                 if allow_ctx {
@@ -492,11 +633,18 @@ impl MainShell {
                         let mut open_about = false;
                         let mut local_pick = false;
                         let mut toggle_legend = false;
+                        let mut open_sidebar = false;
                         let has_local = self.local_lon.is_some() && self.local_lat.is_some();
                         resp.context_menu(|ui| {
                             if ui.button(crate::i18n::t("设置")).clicked() {
                                 open_settings = true;
                                 ui.close_menu();
+                            }
+                            if !show_sidebar {
+                                if ui.button(crate::i18n::t("打开侧栏")).clicked() {
+                                    open_sidebar = true;
+                                    ui.close_menu();
+                                }
                             }
                             ui.add_enabled_ui(has_local, |ui| {
                                 if ui.button(crate::i18n::t("跳转所在地")).clicked() {
@@ -535,6 +683,9 @@ impl MainShell {
                             cfg.ui.show_legend = !cfg.ui.show_legend;
                             persist_cfg = true;
                         }
+                        if open_sidebar {
+                            side_action = Some(SideAction::OpenSidebar);
+                        }
                         if jump_local {
                             if let (Some(lon), Some(lat)) = (self.local_lon, self.local_lat) {
                                 let z = self.home_zoom.clamp(7.5, 11.0);
@@ -551,9 +702,17 @@ impl MainShell {
                 SideAction::List(tab, idx) => {
                     if let Some((lon, lat, zoom)) = snap.select_list_item(tab, idx) {
                         let vp = ctx.screen_rect();
-                        let used_side = if show_sidebar { sidebar_w } else { SIDE_GRIP };
-                        let map_w = (vp.width() - used_side).max(120.0);
-                        let map_h = vp.height().max(120.0);
+                        let (map_w, map_h) = if sidebar_detached || !show_sidebar {
+                            let used = if show_sidebar { 0.0 } else { SIDE_GRIP };
+                            ((vp.width() - used).max(120.0), vp.height().max(120.0))
+                        } else if portrait {
+                            (vp.width().max(120.0), (vp.height() - sidebar_h).max(120.0))
+                        } else {
+                            (
+                                (vp.width() - sidebar_w).max(120.0),
+                                vp.height().max(120.0),
+                            )
+                        };
                         match tab {
                             SidebarTab::Eew | SidebarTab::Records => {
                                 let r_km = if tab == SidebarTab::Eew {
@@ -622,6 +781,8 @@ impl MainShell {
                 }
                 SideAction::CloseSidebar => {
                     cfg.ui.show_sidebar = false;
+                    cfg.ui.sidebar_detached = false;
+                    self.sidebar_geom_dirty_at = None;
                     persist_cfg = true;
                     // 清掉过窄宽度，下次打开用 default_width
                     ctx.data_mut(|d| {
@@ -630,6 +791,24 @@ impl MainShell {
                 }
                 SideAction::OpenSidebar => {
                     cfg.ui.show_sidebar = true;
+                    persist_cfg = true;
+                    ctx.data_mut(|d| {
+                        d.remove::<egui::containers::panel::PanelState>(sidebar_id);
+                    });
+                }
+                SideAction::DetachSidebar => {
+                    cfg.ui.show_sidebar = true;
+                    cfg.ui.sidebar_detached = true;
+                    self.sidebar_geom_dirty_at = None;
+                    persist_cfg = true;
+                    ctx.data_mut(|d| {
+                        d.remove::<egui::containers::panel::PanelState>(sidebar_id);
+                    });
+                }
+                SideAction::AttachSidebar => {
+                    cfg.ui.show_sidebar = true;
+                    cfg.ui.sidebar_detached = false;
+                    self.sidebar_geom_dirty_at = None;
                     persist_cfg = true;
                     ctx.data_mut(|d| {
                         d.remove::<egui::containers::panel::PanelState>(sidebar_id);
@@ -970,14 +1149,23 @@ fn header_slot_peers<'a>(
     dedupe_same_eew_events(&raw)
 }
 
+/// 对齐 eewcn `getWindowZoom`：设计高度 480，随地图视口高度缩放 HUD。
+fn hud_window_zoom(map_height: f32) -> f32 {
+    (map_height / 480.0).clamp(0.75, 2.0)
+}
+
+fn margin_xy(x: f32, y: f32) -> Margin {
+    Margin::symmetric(x.round().clamp(0.0, 127.0) as i8, y.round().clamp(0.0, 127.0) as i8)
+}
+
 /// 左上角预警条总高度（海啸条避让）。
-fn eew_header_stack_height(snap: &AppSnapshot, travel: Option<&TravelEngine>) -> f32 {
+fn eew_header_stack_height(snap: &AppSnapshot, travel: Option<&TravelEngine>, zoom: f32) -> f32 {
     let n = header_live_eews(snap, travel).len();
     if n == 0 {
         return 0.0;
     }
-    // 单条约 96px + 条间距 6
-    96.0 * n as f32 + 6.0 * (n.saturating_sub(1) as f32)
+    // 单条约 96px + 条间距 6（再乘 HUD 缩放）
+    (96.0 * n as f32 + 6.0 * (n.saturating_sub(1) as f32)) * zoom
 }
 
 /// 绘制左上预警条。同源多震时一框显示 `n/N`，点击切到下一条并返回跟焦目标。
@@ -988,6 +1176,7 @@ fn draw_event_header(
     scale: &str,
     icons: &IntensityIcons,
     travel: Option<&TravelEngine>,
+    zoom: f32,
 ) -> Option<(f64, f64, f64)> {
     // 提前 clone，避免 overlay 闭包与 snap 可变借用冲突
     let cards: Vec<EewReport> = header_live_eews(snap, travel)
@@ -1011,17 +1200,18 @@ fn draw_event_header(
         .map(|ev| snap.active.as_ref().is_some_and(|a| same_eew_event(a, ev)))
         .collect();
 
-    const LEFT_PANEL_X: f32 = 12.0;
-    const LEFT_PANEL_W: f32 = 340.0;
-    const ROW_GAP: f32 = 6.0;
-    let pos = ui.max_rect().left_top() + Vec2::new(LEFT_PANEL_X, OVERLAY_TOP_Y);
+    let left_x = 12.0 * zoom;
+    let left_w = 340.0 * zoom;
+    let row_gap = 6.0 * zoom;
+    let top_y = OVERLAY_TOP_Y * zoom;
+    let pos = ui.max_rect().left_top() + Vec2::new(left_x, top_y);
     let rect = egui::Rect::from_min_size(
         pos,
-        Vec2::new(LEFT_PANEL_W + 24.0, ui.max_rect().height().max(120.0)),
+        Vec2::new(left_w + 24.0 * zoom, ui.max_rect().height().max(120.0)),
     );
     let mut cycle_to: Option<EewReport> = None;
     overlay_child(ui, "event_header", rect, |ui| {
-        ui.spacing_mut().item_spacing.y = ROW_GAP;
+        ui.spacing_mut().item_spacing.y = row_gap;
         ui.vertical(|ui| {
             for (i, ev) in cards.iter().enumerate() {
                 let agency = agency_bracket(&ev.agency.0);
@@ -1062,10 +1252,10 @@ fn draw_event_header(
                 let inner = Frame::NONE
                     .fill(Color32::from_rgba_unmultiplied(28, 28, 32, 230))
                     .stroke(stroke)
-                    .inner_margin(Margin::symmetric(10, 8))
-                    .corner_radius(6.0)
+                    .inner_margin(margin_xy(10.0 * zoom, 8.0 * zoom))
+                    .corner_radius(6.0 * zoom)
                     .show(ui, |ui| {
-                        ui.set_width(LEFT_PANEL_W);
+                        ui.set_width(left_w);
                         ui.horizontal(|ui| {
                             paint_intensity(
                                 ui,
@@ -1074,32 +1264,32 @@ fn draw_event_header(
                                 ev.intensity_level,
                                 &ev.max_intensity_text,
                                 scale,
-                                72.0,
+                                72.0 * zoom,
                                 false,
                             );
-                            ui.add_space(10.0);
+                            ui.add_space(10.0 * zoom);
                             ui.vertical(|ui| {
-                                ui.set_min_width(180.0);
+                                ui.set_min_width(180.0 * zoom);
                                 ui.label(
                                     RichText::new(title)
                                         .color(Color32::WHITE)
                                         .strong()
-                                        .size(16.0),
+                                        .size(16.0 * zoom),
                                 );
-                                ui.add_space(2.0);
+                                ui.add_space(2.0 * zoom);
                                 ui.label(
                                     RichText::new(time_line)
                                         .color(Color32::WHITE)
-                                        .size(14.0)
+                                        .size(14.0 * zoom)
                                         .monospace(),
                                 );
-                                ui.add_space(2.0);
+                                ui.add_space(2.0 * zoom);
                                 ui.horizontal(|ui| {
                                     ui.label(
                                         RichText::new(mag_line)
                                             .color(Color32::WHITE)
                                             .strong()
-                                            .size(15.0),
+                                            .size(15.0 * zoom),
                                     );
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
@@ -1107,7 +1297,7 @@ fn draw_event_header(
                                             ui.label(
                                                 RichText::new(depth_line)
                                                     .color(Color32::from_rgb(0xDD, 0xDD, 0xEE))
-                                                    .size(14.0),
+                                                    .size(14.0 * zoom),
                                             );
                                         },
                                     );
@@ -1164,6 +1354,7 @@ fn draw_tsunami_banner(
     p: &ThemePalette,
     snap: &AppSnapshot,
     travel: Option<&TravelEngine>,
+    zoom: f32,
 ) {
     let Some(t) = snap.tsunami.as_ref() else {
         return;
@@ -1211,35 +1402,35 @@ fn draw_tsunami_banner(
     };
     // 有预警信息头时下移（按堆叠条数）；无预警时贴到左上角
     let top_y = {
-        let h = eew_header_stack_height(snap, travel);
+        let h = eew_header_stack_height(snap, travel, zoom);
         if h > 0.0 {
-            OVERLAY_TOP_Y + h + 8.0
+            OVERLAY_TOP_Y * zoom + h + 8.0 * zoom
         } else {
-            OVERLAY_TOP_Y
+            OVERLAY_TOP_Y * zoom
         }
     };
-    const LEFT_PANEL_X: f32 = 12.0;
-    const LEFT_PANEL_W: f32 = 340.0;
-    let pos = ui.max_rect().left_top() + Vec2::new(LEFT_PANEL_X, top_y);
-    let rect = egui::Rect::from_min_size(pos, Vec2::new(LEFT_PANEL_W + 24.0, 220.0));
+    let left_x = 12.0 * zoom;
+    let left_w = 340.0 * zoom;
+    let pos = ui.max_rect().left_top() + Vec2::new(left_x, top_y);
+    let rect = egui::Rect::from_min_size(pos, Vec2::new(left_w + 24.0 * zoom, 220.0 * zoom));
     overlay_child(ui, "tsunami_banner", rect, |ui| {
             Frame::NONE
                 .fill(fill)
-                .stroke(Stroke::new(2.0_f32, border))
-                .corner_radius(6.0)
-                .inner_margin(Margin::symmetric(10, 10))
+                .stroke(Stroke::new(2.0_f32 * zoom, border))
+                .corner_radius(6.0 * zoom)
+                .inner_margin(margin_xy(10.0 * zoom, 10.0 * zoom))
                 .show(ui, |ui| {
-                    ui.set_width(LEFT_PANEL_W);
+                    ui.set_width(left_w);
                     ui.label(
                         RichText::new(format!("{title}生效中"))
                             .color(title_c)
                             .strong()
-                            .size(16.0),
+                            .size(16.0 * zoom),
                     );
-                    ui.add_space(4.0);
-                    ui.label(RichText::new(desc).color(body_c).size(12.5));
+                    ui.add_space(4.0 * zoom);
+                    ui.label(RichText::new(desc).color(body_c).size(12.5 * zoom));
                     if t.expire_ms > 0 {
-                        ui.add_space(2.0);
+                        ui.add_space(2.0 * zoom);
                         let exp = chrono::DateTime::from_timestamp_millis(t.expire_ms)
                             .map(|dt| {
                                 dt.with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).unwrap())
@@ -1247,9 +1438,9 @@ fn draw_tsunami_banner(
                                     .to_string()
                             })
                             .unwrap_or_else(|| crate::i18n::t("预计解除 —").into());
-                        ui.label(RichText::new(exp).color(body_c).size(11.5));
+                        ui.label(RichText::new(exp).color(body_c).size(11.5 * zoom));
                     }
-                    ui.add_space(6.0);
+                    ui.add_space(6.0 * zoom);
                     let line = ui.available_width();
                     let (resp, painter) = ui.allocate_painter(Vec2::new(line, 2.0), Sense::hover());
                     painter.rect_filled(resp.rect, 0.0, border);
@@ -1259,7 +1450,7 @@ fn draw_tsunami_banner(
                     } else {
                         t.areas.clone()
                     };
-                    ui.label(RichText::new(area_line).color(body_c).size(12.0));
+                    ui.label(RichText::new(area_line).color(body_c).size(12.0 * zoom));
                 });
             let _ = p;
         });
@@ -1714,15 +1905,15 @@ fn format_clock_hms(ms: i64) -> String {
 }
 
 
-fn draw_legend_bar(ui: &mut Ui, p: &ThemePalette) {
+fn draw_legend_bar(ui: &mut Ui, p: &ThemePalette, zoom: f32) {
     // 样式：  图例
     //      12□ □7
     // 数字紧贴色块；左列个位右对齐；右列强弱用 +/-
-    const ROW: f32 = 17.0;
-    const SW: f32 = 14.0;
-    const MID: f32 = 2.0;
-    const LEFT_W: f32 = 18.0;
-    const RIGHT_W: f32 = 28.0;
+    let row = 17.0 * zoom;
+    let sw = 14.0 * zoom;
+    let mid = 2.0 * zoom;
+    let left_w = 18.0 * zoom;
+    let right_w = 28.0 * zoom;
     const CN_N: usize = 12;
     const SH_N: usize = 13;
     const SH_ROWS: [(&str, u8); SH_N] = [
@@ -1740,11 +1931,11 @@ fn draw_legend_bar(ui: &mut Ui, p: &ThemePalette) {
         ("-2", 3),
         ("-3", 0),
     ];
-    let width = LEFT_W + SW + MID + SW + RIGHT_W;
+    let width = left_w + sw + mid + sw + right_w;
     let rows = CN_N.max(SH_N);
-    let body_h = ROW * rows as f32;
-    let bottom_left = ui.max_rect().left_bottom() + Vec2::new(4.0, -4.0);
-    let h = body_h + 22.0;
+    let body_h = row * rows as f32;
+    let bottom_left = ui.max_rect().left_bottom() + Vec2::new(4.0 * zoom, -4.0 * zoom);
+    let h = body_h + 22.0 * zoom;
     let rect = egui::Rect::from_min_max(
         egui::pos2(bottom_left.x, bottom_left.y - h),
         egui::pos2(bottom_left.x + width, bottom_left.y),
@@ -1759,52 +1950,54 @@ fn draw_legend_bar(ui: &mut Ui, p: &ThemePalette) {
                 RichText::new(crate::i18n::t("图例"))
                     .color(p.text_muted)
                     .strong()
-                    .size(15.0),
+                    .size(15.0 * zoom),
             );
         });
         let (resp, painter) = ui.allocate_painter(Vec2::new(width, body_h), Sense::hover());
         let r = resp.rect;
-        let cn_sw_x = r.left() + LEFT_W;
-        let sh_sw_x = cn_sw_x + SW + MID;
+        let cn_sw_x = r.left() + left_w;
+        let sh_sw_x = cn_sw_x + sw + mid;
+        let pad = 1.5 * zoom;
+        let font_sz = 12.0 * zoom;
 
         for i in 0..CN_N {
             let lv = (12 - i) as u8;
-            let y0 = r.top() + ROW * i as f32;
-            let cy = y0 + ROW * 0.5;
+            let y0 = r.top() + row * i as f32;
+            let cy = y0 + row * 0.5;
             painter.text(
                 egui::pos2(cn_sw_x, cy),
                 egui::Align2::RIGHT_CENTER,
                 format!("{lv}"),
-                FontId::proportional(12.0),
+                FontId::proportional(font_sz),
                 p.text_dim,
             );
             painter.rect_filled(
                 egui::Rect::from_min_max(
-                    egui::pos2(cn_sw_x, y0 + 1.5),
-                    egui::pos2(cn_sw_x + SW, y0 + ROW - 1.5),
+                    egui::pos2(cn_sw_x, y0 + pad),
+                    egui::pos2(cn_sw_x + sw, y0 + row - pad),
                 ),
-                1.5,
+                1.5 * zoom,
                 rgb(cn_intensity_rgb(lv)),
             );
         }
 
         for i in 0..SH_N {
             let (label, band) = SH_ROWS[i];
-            let y0 = r.top() + ROW * i as f32;
-            let cy = y0 + ROW * 0.5;
+            let y0 = r.top() + row * i as f32;
+            let cy = y0 + row * 0.5;
             painter.rect_filled(
                 egui::Rect::from_min_max(
-                    egui::pos2(sh_sw_x, y0 + 1.5),
-                    egui::pos2(sh_sw_x + SW, y0 + ROW - 1.5),
+                    egui::pos2(sh_sw_x, y0 + pad),
+                    egui::pos2(sh_sw_x + sw, y0 + row - pad),
                 ),
-                1.5,
+                1.5 * zoom,
                 rgb(instrumental_band_rgb(band)),
             );
             painter.text(
-                egui::pos2(sh_sw_x + SW, cy),
+                egui::pos2(sh_sw_x + sw, cy),
                 egui::Align2::LEFT_CENTER,
                 label,
-                FontId::proportional(12.0),
+                FontId::proportional(font_sz),
                 p.text_muted,
             );
         }
@@ -1819,6 +2012,7 @@ fn draw_countdown_hud(
     map_rect: egui::Rect,
     local_lat: Option<f64>,
     local_lon: Option<f64>,
+    zoom: f32,
 ) {
     let local = Local::now();
     let clock = local.format("%Y/%m/%d %H:%M:%S").to_string();
@@ -1835,9 +2029,9 @@ fn draw_countdown_hud(
     };
 
     // 贴地图视口右下角；时钟用绝对坐标绘制，避免 bottom_up 嵌套把标题/时间叠成重影
-    let br = map_rect.right_bottom() + Vec2::new(-4.0, -4.0);
-    let hud_w = 280.0_f32;
-    let clock_block_h = 36.0_f32;
+    let br = map_rect.right_bottom() + Vec2::new(-4.0 * zoom, -4.0 * zoom);
+    let hud_w = 280.0 * zoom;
+    let clock_block_h = 36.0 * zoom;
     let sun_line = match (local_lat, local_lon) {
         (Some(lat), Some(lon)) => sunrise_sunset_local_hm(lat, lon, local.timestamp_millis())
             .map(|(rise, set)| {
@@ -1852,9 +2046,13 @@ fn draw_countdown_hud(
         _ => None,
     };
     let n_clocks = 1 + usize::from(show_nied) + usize::from(sun_line.is_some());
-    let countdown_h = if snap.countdown_s.is_some() { 72.0 } else { 0.0 };
-    let gap = 6.0_f32;
-    let hud_h = countdown_h + clock_block_h * n_clocks as f32 + gap + 8.0;
+    let countdown_h = if snap.countdown_s.is_some() {
+        72.0 * zoom
+    } else {
+        0.0
+    };
+    let gap = 6.0 * zoom;
+    let hud_h = countdown_h + clock_block_h * n_clocks as f32 + gap + 8.0 * zoom;
     let rect = egui::Rect::from_min_size(
         egui::pos2(br.x - hud_w, br.y - hud_h),
         Vec2::new(hud_w, hud_h),
@@ -1863,15 +2061,36 @@ fn draw_countdown_hud(
         ui.spacing_mut().window_margin = Margin::ZERO;
         ui.spacing_mut().item_spacing = Vec2::ZERO;
         let r = ui.max_rect();
-        let mut y_bottom = r.bottom() - 2.0;
+        let mut y_bottom = r.bottom() - 2.0 * zoom;
 
         // 自下而上：东京 → 北京 → 日出日落 → 视觉自上而下为日出日落、北京、东京
         if let Some(jst) = jst_clock.as_ref() {
-            y_bottom = paint_tz_clock_at(ui, r.right() - 2.0, y_bottom, crate::i18n::t("东京时间"), jst);
+            y_bottom = paint_tz_clock_at(
+                ui,
+                r.right() - 2.0 * zoom,
+                y_bottom,
+                crate::i18n::t("东京时间"),
+                jst,
+                zoom,
+            );
         }
-        y_bottom = paint_tz_clock_at(ui, r.right() - 2.0, y_bottom, crate::i18n::t("北京时间"), &clock);
+        y_bottom = paint_tz_clock_at(
+            ui,
+            r.right() - 2.0 * zoom,
+            y_bottom,
+            crate::i18n::t("北京时间"),
+            &clock,
+            zoom,
+        );
         if let Some(sun) = sun_line.as_ref() {
-            y_bottom = paint_tz_clock_at(ui, r.right() - 2.0, y_bottom, crate::i18n::t("所在地"), sun);
+            y_bottom = paint_tz_clock_at(
+                ui,
+                r.right() - 2.0 * zoom,
+                y_bottom,
+                crate::i18n::t("所在地"),
+                sun,
+                zoom,
+            );
         }
 
         if let Some(sec) = snap.countdown_s {
@@ -1883,12 +2102,12 @@ fn draw_countdown_hud(
             ui.scope_builder(egui::UiBuilder::new().max_rect(cd_rect), |ui| {
                 ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
                     let title = if sec > 0 { "S波即将到达" } else { "S波已到达" };
-                    outlined_label(ui, title, Color32::WHITE, 14.0, false);
+                    outlined_label(ui, title, Color32::WHITE, 14.0 * zoom, false);
                     ui.allocate_ui_with_layout(
-                        Vec2::new(ui.available_width(), 44.0),
+                        Vec2::new(ui.available_width(), 44.0 * zoom),
                         egui::Layout::right_to_left(egui::Align::Center),
                         |ui| {
-                            ui.spacing_mut().item_spacing.x = 6.0;
+                            ui.spacing_mut().item_spacing.x = 6.0 * zoom;
                             let mm = sec / 60;
                             let ss = sec % 60;
                             let time_txt = format!("{mm}:{ss:02}");
@@ -1899,9 +2118,9 @@ fn draw_countdown_hud(
                             };
                             Frame::NONE
                                 .fill(Color32::from_rgba_unmultiplied(0x66, 0x66, 0x66, 0x80))
-                                .inner_margin(Margin::symmetric(6, 2))
+                                .inner_margin(margin_xy(6.0 * zoom, 2.0 * zoom))
                                 .show(ui, |ui| {
-                                    outlined_label(ui, &time_txt, time_color, 34.0, false);
+                                    outlined_label(ui, &time_txt, time_color, 34.0 * zoom, false);
                                 });
                             let lv = snap.countdown_local_level;
                             let label = if snap.countdown_local_text.is_empty() {
@@ -1920,20 +2139,20 @@ fn draw_countdown_hud(
                             };
                             let fg = intensity_fg(bg);
                             let border = if lv == 0 {
-                                Stroke::new(1.0_f32, Color32::WHITE)
+                                Stroke::new(1.0_f32 * zoom, Color32::WHITE)
                             } else {
                                 Stroke::NONE
                             };
                             Frame::NONE
                                 .fill(bg)
                                 .stroke(border)
-                                .inner_margin(Margin::symmetric(8, 2))
+                                .inner_margin(margin_xy(8.0 * zoom, 2.0 * zoom))
                                 .show(ui, |ui| {
                                     ui.label(
                                         RichText::new(label)
                                             .color(fg)
                                             .strong()
-                                            .size(34.0),
+                                            .size(34.0 * zoom),
                                     );
                                 });
                         },
@@ -1945,28 +2164,35 @@ fn draw_countdown_hud(
 }
 
 /// 在右下角绝对位置绘制一块时钟；返回下一块可用的 bottom y。
-fn paint_tz_clock_at(ui: &mut Ui, right: f32, bottom: f32, title: &str, datetime: &str) -> f32 {
-    let h = 36.0_f32;
+fn paint_tz_clock_at(
+    ui: &mut Ui,
+    right: f32,
+    bottom: f32,
+    title: &str,
+    datetime: &str,
+    zoom: f32,
+) -> f32 {
+    let h = 36.0 * zoom;
     let top = bottom - h;
     let x = right.floor();
     let painter = ui.painter();
-    let title_font = FontId::new(13.0, FontFamily::Proportional);
-    let time_font = FontId::new(15.0, FontFamily::Proportional);
+    let title_font = FontId::new(13.0 * zoom, FontFamily::Proportional);
+    let time_font = FontId::new(15.0 * zoom, FontFamily::Proportional);
     painter.text(
-        egui::pos2(x, (top + 12.0).floor()),
+        egui::pos2(x, (top + 12.0 * zoom).floor()),
         egui::Align2::RIGHT_CENTER,
         title,
         title_font,
         Color32::from_rgb(0xCC, 0xCC, 0xCC),
     );
     painter.text(
-        egui::pos2(x, (top + 28.0).floor()),
+        egui::pos2(x, (top + 28.0 * zoom).floor()),
         egui::Align2::RIGHT_CENTER,
         datetime,
         time_font,
         Color32::WHITE,
     );
-    top - 2.0
+    top - 2.0 * zoom
 }
 
 fn intensity_fg(bg: Color32) -> Color32 {
@@ -2001,6 +2227,8 @@ enum SideAction {
     Settings,
     CloseSidebar,
     OpenSidebar,
+    DetachSidebar,
+    AttachSidebar,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2027,6 +2255,7 @@ fn draw_sidebar(
     weather_icons: &mut WeatherIconCache,
     show_volcano_icons: bool,
     source_enabled: [bool; 5],
+    detached: bool,
 ) -> Option<SideAction> {
     let mut clicked = None;
     ui.set_min_width(ui.available_width());
@@ -2055,6 +2284,34 @@ fn draw_sidebar(
                         .clicked()
                     {
                         clicked = Some(SideAction::CloseSidebar);
+                    }
+                    let detach_label = if detached {
+                        crate::i18n::t("嵌回")
+                    } else {
+                        crate::i18n::t("分离")
+                    };
+                    let detach_tip = if detached {
+                        crate::i18n::t("嵌回主窗口侧栏")
+                    } else {
+                        crate::i18n::t("分离为独立窗口")
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new(detach_label).size(13.0).color(p.text_muted),
+                            )
+                            .fill(p.tab_idle)
+                            .corner_radius(6.0)
+                            .min_size(Vec2::new(52.0, 26.0)),
+                        )
+                        .on_hover_text(detach_tip)
+                        .clicked()
+                    {
+                        clicked = Some(if detached {
+                            SideAction::AttachSidebar
+                        } else {
+                            SideAction::DetachSidebar
+                        });
                     }
                     if ui
                         .add(

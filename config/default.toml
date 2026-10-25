@@ -17,6 +17,8 @@ show_nied_clock = false
 sidebar_default_tab = "eew"
 # 右侧情报列表；关闭后可从右缘拉开或地图右键菜单操作
 show_sidebar = true
+# 侧栏分离为独立窗口（可从侧栏标题栏或设置切换）
+sidebar_detached = false
 intensity_scale = "auto"
 always_on_top = false
 minimize_to_tray = true
