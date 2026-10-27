@@ -105,7 +105,12 @@ pub struct AvailableUpdate {
 
 #[derive(Debug, Clone, Deserialize)]
 struct UpdateManifest {
+    /// 比较与旧客户端（≤2.3.3-beta）可读版本。本版兼容写数字 `2.3.4`；
+    /// **Beta 2.3.5 起**改为新格式 `Beta x.y.z`（仅新解析客户端可读）。
     latest_version: String,
+    /// 面向用户的版本文案（如 `Beta 2.3.4`）。2.3.4+ 弹窗优先用此字段；旧客户端忽略。
+    #[serde(default)]
+    display_version: String,
     #[serde(default)]
     min_supported_version: String,
     #[serde(default)]
@@ -126,6 +131,24 @@ struct UpdateManifest {
     release_notes_url: String,
     #[serde(default)]
     html_url: String,
+}
+
+/// 清单对外展示版本：有 `display_version` 用它，否则用 `latest_version`。
+fn manifest_display_version(m: &UpdateManifest) -> String {
+    let d = m.display_version.trim();
+    if !d.is_empty() {
+        return d.to_string();
+    }
+    m.latest_version.trim().to_string()
+}
+
+/// 用于新旧比较的远程版本串：优先可解析的 `display_version`，否则 `latest_version`。
+fn manifest_compare_version(m: &UpdateManifest) -> String {
+    let d = m.display_version.trim();
+    if !d.is_empty() && parse_semver(d).is_some() {
+        return d.to_string();
+    }
+    m.latest_version.trim().to_string()
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -221,16 +244,18 @@ fn mirror_rank(url: &str) -> u8 {
     }
 }
 
-/// 选最新 `latest_version`；同版本优先 Gitee，再 GitHub，服务器最后。
+/// 选最新版（`display_version` / `latest_version`）；同版本优先 Gitee，再 GitHub，服务器最后。
 fn pick_newest_manifest(cands: &[(String, UpdateManifest)]) -> Option<(String, UpdateManifest)> {
     let mut best: Option<(String, UpdateManifest)> = None;
     for (url, m) in cands {
         let take = match &best {
             None => true,
             Some((best_url, cur)) => {
-                if is_newer(&m.latest_version, &cur.latest_version) {
+                let mv = manifest_compare_version(m);
+                let cv = manifest_compare_version(cur);
+                if is_newer(&mv, &cv) {
                     true
-                } else if is_newer(&cur.latest_version, &m.latest_version) {
+                } else if is_newer(&cv, &mv) {
                     false
                 } else {
                     mirror_rank(url) < mirror_rank(best_url)
@@ -474,28 +499,38 @@ fn asset_mirror_urls(primary: &str) -> Vec<String> {
 }
 
 /// 查询最新版；若无更新返回 `Ok(None)`。
+///
+/// - **2.3.4 过渡**：`latest_version` 写数字 `2.3.4`（给 ≤2.3.3-beta 比较），`display_version` 写 `Beta 2.3.4`。
+/// - **2.3.5 起**：`latest_version` 直接写 `Beta x.y.z`（本客户端新解析）；可不再填 `display_version`。
 pub fn check_latest(local_version: &str) -> Result<Option<AvailableUpdate>> {
     let client = http_client()?;
     let m = fetch_manifest(&client)?;
-    let ver = m
-        .latest_version
-        .trim()
-        .trim_start_matches('v')
-        .trim_start_matches('V')
-        .to_string();
-    if ver.is_empty() {
+    let compare = manifest_compare_version(&m);
+    let shown = manifest_display_version(&m);
+    if compare.is_empty() && shown.is_empty() {
         bail!("更新清单缺少 latest_version");
     }
-    if !is_newer(&ver, local_version) {
+    let remote_for_cmp = if !compare.is_empty() {
+        compare
+    } else {
+        shown.clone()
+    };
+    if !is_newer(&remote_for_cmp, local_version) {
         info!(
             local = local_version,
-            remote = %ver,
+            remote = %remote_for_cmp,
+            shown = %shown,
             channel = %m.channel,
             "已是最新版"
         );
         let _ = m.min_supported_version;
         return Ok(None);
     }
+    let ver = if !shown.is_empty() {
+        shown
+    } else {
+        remote_for_cmp
+    };
     let (asset, asset_name) = pick_platform_asset(&m)?;
     let html = if !m.html_url.trim().is_empty() {
         m.html_url
@@ -1113,7 +1148,22 @@ mod tests {
         assert!(is_newer("2.3.2-beta", "2.3.1"));
         assert!(is_newer("2.3.3-beta", "2.3.2-beta"));
         assert!(is_newer("Beta 2.3.4", "2.3.3-beta"));
+        assert!(is_newer("2.3.4", "2.3.3-beta"));
         assert!(!is_newer("Beta 2.3.4", "Beta 2.3.4"));
+        assert!(!is_newer("2.3.4", "Beta 2.3.4"));
+    }
+
+    #[test]
+    fn manifest_prefers_display_version() {
+        let raw = r#"{
+          "latest_version": "2.3.4",
+          "display_version": "Beta 2.3.4",
+          "notes": "n",
+          "zip": { "url": "https://example.com/a.zip", "sha256": "" }
+        }"#;
+        let m: UpdateManifest = serde_json::from_str(raw).unwrap();
+        assert_eq!(manifest_display_version(&m), "Beta 2.3.4");
+        assert_eq!(manifest_compare_version(&m), "Beta 2.3.4");
     }
 
     #[test]
@@ -1149,6 +1199,7 @@ mod tests {
     fn pick_newest_same_version_prefers_gitee() {
         let gh = UpdateManifest {
             latest_version: "2.3.1".into(),
+            display_version: String::new(),
             min_supported_version: String::new(),
             channel: "stable".into(),
             installer: None,
@@ -1253,6 +1304,7 @@ mod tests {
     fn pick_newest_ignores_stale_mirror() {
         let stale = UpdateManifest {
             latest_version: "2.3.0".into(),
+            display_version: String::new(),
             min_supported_version: String::new(),
             channel: "stable".into(),
             installer: None,
@@ -1267,6 +1319,7 @@ mod tests {
         };
         let fresh = UpdateManifest {
             latest_version: "2.3.1".into(),
+            display_version: String::new(),
             min_supported_version: String::new(),
             channel: "stable".into(),
             installer: None,
