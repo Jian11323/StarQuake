@@ -2028,10 +2028,13 @@ impl StarQuakeApp {
                     if same {
                         return;
                     }
-                    self.cfg.window.width = w;
-                    self.cfg.window.height = h;
-                    self.cfg.window.x = x;
-                    self.cfg.window.y = y;
+                    //不保存最大化的窗口大小
+                    if !maximized {
+                        self.cfg.window.width = w;
+                        self.cfg.window.height = h;
+                        self.cfg.window.x = x;
+                        self.cfg.window.y = y;
+                    }
                     self.cfg.window.maximized = maximized;
                     if let Err(e) = self.cfg.save_user_overlay() {
                         tracing::warn!("保存窗口几何失败: {e:#}");
