@@ -2260,9 +2260,20 @@ row_divider(ui);
             toggle(ui, &mut draft.ui.show_typhoons);
         });
         row_divider(ui);
-        control_row(ui, "活动断层", "默认关；开启后才加载并绘制 GEM/CAFD 迹线", "\u{25ce}", |ui| {
+        control_row(ui, "活动断层", "实验性；默认关；开启后才加载 GEM/CAFD 迹线", "\u{25ce}", |ui| {
             toggle(ui, &mut draft.ui.show_faults);
         });
+        if draft.ui.show_faults {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.add_space(44.0);
+                ui.label(
+                    RichText::new(t("本功能目前仅为实验性功能，尚未得到完全修复，请谨慎使用"))
+                        .size(12.0)
+                        .color(chrome().status_warn),
+                );
+            });
+        }
         row_divider(ui);
         control_row(ui, "晨昏线", "按本机时间绘制夜侧与晨昏分界", "\u{25ce}", |ui| {
             toggle(ui, &mut draft.ui.show_terminator);

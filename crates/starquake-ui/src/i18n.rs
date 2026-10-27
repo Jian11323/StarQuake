@@ -1210,9 +1210,12 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "默认 JMA2001"), "預設 JMA2001");
         m.insert((Lang::Ja, "默认 JMA2001"), "既定 JMA2001");
         m.insert((Lang::En, "默认 JMA2001"), "Default JMA2001");
-        m.insert((Lang::ZhTw, "默认关；开启后才加载并绘制 GEM/CAFD 迹线"), "預設關；開啟後才載入並繪製 GEM/CAFD 跡線");
-        m.insert((Lang::Ja, "默认关；开启后才加载并绘制 GEM/CAFD 迹线"), "既定オフ。有効時のみ GEM/CAFD を読込描画");
-        m.insert((Lang::En, "默认关；开启后才加载并绘制 GEM/CAFD 迹线"), "Off by default; loads GEM/CAFD only when enabled");
+        m.insert((Lang::ZhTw, "实验性；默认关；开启后才加载 GEM/CAFD 迹线"), "實驗性；預設關；開啟後才載入 GEM/CAFD 跡線");
+        m.insert((Lang::Ja, "实验性；默认关；开启后才加载 GEM/CAFD 迹线"), "実験的。既定オフ。有効時のみ GEM/CAFD を読込");
+        m.insert((Lang::En, "实验性；默认关；开启后才加载 GEM/CAFD 迹线"), "Experimental; off by default; loads GEM/CAFD when enabled");
+        m.insert((Lang::ZhTw, "本功能目前仅为实验性功能，尚未得到完全修复，请谨慎使用"), "本功能目前僅為實驗性功能，尚未得到完全修復，請謹慎使用");
+        m.insert((Lang::Ja, "本功能目前仅为实验性功能，尚未得到完全修复，请谨慎使用"), "本機能は実験的であり、完全には修正されていません。ご注意ください");
+        m.insert((Lang::En, "本功能目前仅为实验性功能，尚未得到完全修复，请谨慎使用"), "Experimental only; not fully fixed yet—use with caution");
         m.insert((Lang::ZhTw, "默认视口"), "預設視口");
         m.insert((Lang::Ja, "默认视口"), "既定ビュー");
         m.insert((Lang::En, "默认视口"), "Default viewport");
