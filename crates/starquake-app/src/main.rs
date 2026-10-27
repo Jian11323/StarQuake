@@ -154,7 +154,7 @@ fn run_app() -> Result<()> {
     result
 }
 
-/// GPU/OpenGL 创建失败时回退 CPU 软渲染的错误特征。
+/// GPU/OpenGL 创建失败时改走 wgpu（DX12 等）回退的错误特征。
 fn should_fallback_soft_render(err: &str) -> bool {
     let e = err.to_ascii_lowercase();
     e.contains("es context")
@@ -184,12 +184,12 @@ fn env_flag(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// 自动化：记录已走「GPU 失败 → CPU 软渲染」回退路径。
+/// 自动化：记录已走「OpenGL 失败 → wgpu」回退路径。
 fn write_gpu_fallback_marker(resource_root: &Path) {
     let dir = resource_root.join("logs");
     let _ = std::fs::create_dir_all(&dir);
     let path = dir.join("gpu_fallback_ok.txt");
-    if let Err(e) = std::fs::write(&path, b"soft\n") {
+    if let Err(e) = std::fs::write(&path, b"wgpu\n") {
         tracing::warn!(error = %e, "write gpu_fallback_ok.txt failed");
     } else {
         tracing::info!(path = %path.display(), "GPU fallback marker written");
@@ -213,7 +213,7 @@ mod gl_fallback_tests {
     }
 
     #[test]
-    fn force_soft_turns_off_hardware_acceleration() {
+    fn force_soft_uses_wgpu_backend() {
         let perf = PerformanceConfig {
             device: "gpu".into(),
             profile: "normal".into(),
@@ -221,11 +221,9 @@ mod gl_fallback_tests {
         };
         let vp = egui::ViewportBuilder::default().with_inner_size([800.0, 600.0]);
         let soft = build_native_options(vp.clone(), &perf, true);
-        assert!(matches!(
-            soft.hardware_acceleration,
-            eframe::HardwareAcceleration::Off
-        ));
+        assert!(matches!(soft.renderer, eframe::Renderer::Wgpu));
         let gpu = build_native_options(vp, &perf, false);
+        assert!(matches!(gpu.renderer, eframe::Renderer::Glow));
         assert!(matches!(
             gpu.hardware_acceleration,
             eframe::HardwareAcceleration::Preferred
@@ -233,7 +231,7 @@ mod gl_fallback_tests {
     }
 
     #[test]
-    fn config_cpu_device_also_disables_hw() {
+    fn config_cpu_device_uses_wgpu() {
         let perf = PerformanceConfig {
             device: "cpu".into(),
             profile: "normal".into(),
@@ -241,10 +239,7 @@ mod gl_fallback_tests {
         };
         let vp = egui::ViewportBuilder::default().with_inner_size([800.0, 600.0]);
         let opts = build_native_options(vp, &perf, false);
-        assert!(matches!(
-            opts.hardware_acceleration,
-            eframe::HardwareAcceleration::Off
-        ));
+        assert!(matches!(opts.renderer, eframe::Renderer::Wgpu));
     }
 }
 
@@ -258,10 +253,10 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
             format!("force_soft={force_soft}\nroot={}\n", root.display()),
         );
     }
-    // 模拟 GPU/OpenGL 不可用：首轮强制走软渲染回退（供自动化验证，不递归）。
+    // 模拟 GPU/OpenGL 不可用：首轮强制走 wgpu 回退（供自动化验证，不递归）。
     if !force_soft && env_flag("STARQUAKE_SIMULATE_GPU_FAIL") {
         let fake = "glutin error: extension to create ES context with wgl is not present (simulated)";
-        tracing::warn!(error = %fake, "STARQUAKE_SIMULATE_GPU_FAIL：模拟 GPU 不可用，回退 CPU");
+        tracing::warn!(error = %fake, "STARQUAKE_SIMULATE_GPU_FAIL：模拟 OpenGL 不可用，回退 wgpu");
         assert!(should_fallback_soft_render(fake));
         write_gpu_fallback_marker(&root);
         return run_app_inner(true);
@@ -278,7 +273,7 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
     );
 
     // 启动主窗口前检查更新（复用 update 清单竞速逻辑；确认安装则退出，不进主界面）。
-    // GPU 软渲染重试 / 自动化巡检不再弹窗、也不在 splash 后再自动查。
+    // wgpu 回退重试 / 自动化巡检不再弹窗、也不在 splash 后再自动查。
     let mut startup_update_done = force_soft || env_flag("STARQUAKE_AUTOTEST");
     let mut pending_startup_install: Option<AvailableUpdate> = None;
     if !force_soft && !env_flag("STARQUAKE_AUTOTEST") {
@@ -461,7 +456,7 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
         viewport = viewport.with_always_on_top();
     }
 
-    // 固定 OpenGL（Glow）。WGL 无法创建 ES 上下文时自动改软渲染再试一次。
+    // 默认 OpenGL（Glow）。WGL/ES 创建失败或配置 CPU 时改用 wgpu（DX12 等）。
     let options = build_native_options(viewport, &cfg.performance, force_soft);
 
     let started = Instant::now();
@@ -538,7 +533,7 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
     if let Err(e) = run_err {
         let msg = e.to_string();
         if !force_soft && should_fallback_soft_render(&msg) {
-            tracing::warn!(error = %msg, "GPU/OpenGL 不可用，回退 CPU 软渲染后重试");
+            tracing::warn!(error = %msg, "OpenGL/Glow 不可用，回退 wgpu（DX12 等）后重试");
             write_gpu_fallback_marker(&resource_root());
             return run_app_inner(true);
         }
@@ -554,17 +549,44 @@ fn build_native_options(
 ) -> eframe::NativeOptions {
     let device = perf.device.to_ascii_lowercase();
     let profile = perf.profile.to_ascii_lowercase();
-    let hw = if force_soft || device == "cpu" {
-        eframe::HardwareAcceleration::Off
+    let use_wgpu = force_soft || device == "cpu";
+    let vsync = profile != "extreme";
+
+    if use_wgpu {
+        // HardwareAcceleration::Off + Glow 在缺 WGL ES 扩展的机器上同样起不来；
+        // 改走 wgpu，优先 DX12/Vulkan，避开坏掉的 WGL/OpenGL 路径。
+        let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::default();
+        setup.instance_descriptor.backends = eframe::wgpu::Backends::PRIMARY;
+        setup.power_preference = if device == "cpu" || force_soft {
+            eframe::wgpu::PowerPreference::LowPower
+        } else {
+            eframe::wgpu::PowerPreference::HighPerformance
+        };
+        let wgpu_options = eframe::egui_wgpu::WgpuConfiguration {
+            present_mode: if vsync {
+                eframe::wgpu::PresentMode::AutoVsync
+            } else {
+                eframe::wgpu::PresentMode::AutoNoVsync
+            },
+            wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(setup),
+            ..Default::default()
+        };
+        eframe::NativeOptions {
+            viewport,
+            vsync,
+            hardware_acceleration: eframe::HardwareAcceleration::Preferred,
+            renderer: eframe::Renderer::Wgpu,
+            wgpu_options,
+            ..Default::default()
+        }
     } else {
-        eframe::HardwareAcceleration::Preferred
-    };
-    eframe::NativeOptions {
-        viewport,
-        vsync: profile != "extreme",
-        hardware_acceleration: hw,
-        renderer: eframe::Renderer::Glow,
-        ..Default::default()
+        eframe::NativeOptions {
+            viewport,
+            vsync,
+            hardware_acceleration: eframe::HardwareAcceleration::Preferred,
+            renderer: eframe::Renderer::Glow,
+            ..Default::default()
+        }
     }
 }
 

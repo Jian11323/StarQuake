@@ -326,13 +326,13 @@ impl PerformanceConfig {
         self.profile.to_ascii_lowercase()
     }
 
-    /// 空闲（无交互、无波圈）重绘间隔。正常约 1 秒，节能约 1.5 秒，软渲染约 2 秒。
+    /// 空闲（无交互、无波圈）重绘间隔。正常/极致约 1 秒，节能约 1.5 秒，软渲染约 2 秒。
+    /// 极致档只在交互/波圈时拉满目标帧率，空闲同样降频，避免 GPU 空转。
     pub fn idle_repaint_ms(&self) -> u64 {
         if self.software_raster() {
             return 2000;
         }
         match self.profile_norm().as_str() {
-            "extreme" => self.repaint_interval_ms(),
             "eco" => 1500,
             _ => 1000,
         }
@@ -353,7 +353,7 @@ impl PerformanceConfig {
             return 400;
         }
         match self.profile_norm().as_str() {
-            "extreme" => self.repaint_interval_ms(),
+            "extreme" => 100,
             "eco" => 300,
             _ => 200,
         }
@@ -1857,7 +1857,7 @@ mod fps_preset_tests {
         assert!(p.wave_repaint_ms() >= 100);
         p.profile = "extreme".into();
         p.target_fps = 60;
-        assert_eq!(p.idle_repaint_ms(), p.repaint_interval_ms());
+        assert_eq!(p.idle_repaint_ms(), 1000);
         p.device = "cpu".into();
         assert_eq!(p.idle_repaint_ms(), 2000);
         assert!(p.repaint_interval_ms() >= 33);

@@ -97,9 +97,9 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "StarQuake · 左侧分类与右侧内容合并为同一玻璃面板"), "StarQuake · 左側分類與右側內容合併為同一玻璃面板");
         m.insert((Lang::Ja, "StarQuake · 左侧分类与右侧内容合并为同一玻璃面板"), "StarQuake · 左ナビと右パネルを一体のガラスUIに統合");
         m.insert((Lang::En, "StarQuake · 左侧分类与右侧内容合并为同一玻璃面板"), "StarQuake · Sidebar and content share one glass panel");
-        m.insert((Lang::ZhTw, "GPU 使用 OpenGL；仅切换渲染设备需重启"), "GPU 使用 OpenGL；僅切換渲染裝置需重啟");
-        m.insert((Lang::Ja, "GPU 使用 OpenGL；仅切换渲染设备需重启"), "GPU は OpenGL。描画デバイス切替のみ再起動");
-        m.insert((Lang::En, "GPU 使用 OpenGL；仅切换渲染设备需重启"), "GPU uses OpenGL; restart only when switching renderer");
+        m.insert((Lang::ZhTw, "GPU=OpenGL（失败自动改 DX12）；CPU=低功耗图形；改设备需重启"), "GPU=OpenGL（失敗自動改 DX12）；CPU=低功耗圖形；改裝置需重啟");
+        m.insert((Lang::Ja, "GPU=OpenGL（失败自动改 DX12）；CPU=低功耗图形；改设备需重启"), "GPU=OpenGL（失敗時 DX12）。CPU=低電力。切替は再起動");
+        m.insert((Lang::En, "GPU=OpenGL（失败自动改 DX12）；CPU=低功耗图形；改设备需重启"), "GPU=OpenGL (DX12 if fail); CPU=low-power; restart to switch");
         m.insert((Lang::ZhTw, "GPU 模式"), "GPU 模式");
         m.insert((Lang::Ja, "GPU 模式"), "GPUモード");
         m.insert((Lang::En, "GPU 模式"), "GPU mode");
@@ -1069,9 +1069,9 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "节能"), "節能");
         m.insert((Lang::Ja, "节能"), "省エネ");
         m.insert((Lang::En, "节能"), "Eco");
-        m.insert((Lang::ZhTw, "节能空闲约 1.5 秒，正常约 1 秒，极致跟目标帧率（保存后立即生效）"), "節能空閒約 1.5 秒，正常約 1 秒，極致跟目標幀率（儲存後立即生效）");
-        m.insert((Lang::Ja, "节能空闲约 1.5 秒，正常约 1 秒，极致跟目标帧率（保存后立即生效）"), "省エネは待機約1.5秒、標準は約1秒、極限は目標fps（保存後すぐ）");
-        m.insert((Lang::En, "节能空闲约 1.5 秒，正常约 1 秒，极致跟目标帧率（保存后立即生效）"), "Eco idles ~1.5s, Normal ~1s, Extreme follows target fps (applies on save)");
+        m.insert((Lang::ZhTw, "节能空闲约 1.5 秒，正常/极致空闲约 1 秒；交互与波圈跟目标帧率（保存后立即生效）"), "節能空閒約 1.5 秒，正常/極致空閒約 1 秒；交互與波圈跟目標幀率（儲存後立即生效）");
+        m.insert((Lang::Ja, "节能空闲约 1.5 秒，正常/极致空闲约 1 秒；交互与波圈跟目标帧率（保存后立即生效）"), "省エネ待機約1.5秒、標準/極限待機約1秒；操作・波は目標fps（保存後すぐ）");
+        m.insert((Lang::En, "节能空闲约 1.5 秒，正常/极致空闲约 1 秒；交互与波圈跟目标帧率（保存后立即生效）"), "Eco idle ~1.5s; Normal/Extreme idle ~1s; interaction/waves follow target fps");
         m.insert((Lang::ZhTw, "节能模式"), "節能模式");
         m.insert((Lang::Ja, "节能模式"), "省エネ");
         m.insert((Lang::En, "节能模式"), "Eco mode");

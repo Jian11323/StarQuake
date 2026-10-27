@@ -2235,7 +2235,7 @@ row_divider(ui);
     });
 
     section(ui, "性能与渲染", "\u{25ce}", |ui| {
-        control_row(ui, "渲染设备", "GPU 使用 OpenGL；仅切换渲染设备需重启", "\u{25ce}", |ui| {
+        control_row(ui, "渲染设备", "GPU=OpenGL（失败自动改 DX12）；CPU=低功耗图形；改设备需重启", "\u{25ce}", |ui| {
             egui::ComboBox::from_id_salt("set_perf_device")
                 .selected_text(perf_device_label(&draft.performance.device))
                 .width(140.0)
@@ -2245,7 +2245,7 @@ row_divider(ui);
                 });
         });
         row_divider(ui);
-        control_row(ui, "性能模式", "节能空闲约 1.5 秒，正常约 1 秒，极致跟目标帧率（保存后立即生效）", "\u{25ce}", |ui| {
+        control_row(ui, "性能模式", "节能空闲约 1.5 秒，正常/极致空闲约 1 秒；交互与波圈跟目标帧率（保存后立即生效）", "\u{25ce}", |ui| {
             egui::ComboBox::from_id_salt("set_perf_profile")
                 .selected_text(perf_profile_label(&draft.performance.profile))
                 .width(140.0)

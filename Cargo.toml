@@ -41,8 +41,8 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-# 仅 Glow/OpenGL，不拉 wgpu（设置里已去掉 Vulkan）
-eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+# 默认 Glow/OpenGL；启用 wgpu 供 OpenGL/WGL 失败时回退（Windows 上多为 DX12）
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "wgpu", "x11", "wayland"] }
 egui = "0.31"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
