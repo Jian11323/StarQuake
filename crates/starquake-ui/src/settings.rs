@@ -496,10 +496,15 @@ impl SettingsSession {
                 }
             });
 
-        // 定死尺寸：禁止内容/avail 反馈抬升；尺寸随主窗口缩小，并始终锚在可视区中心
-        let edge = 10.0_f32;
-        let max_w = (screen.width() - edge * 2.0).clamp(300.0, 1100.0);
-        let max_h = (screen.height() - edge * 2.0).clamp(200.0, 680.0);
+        // 定死尺寸：禁止内容抬升；小窗也保留一圈遮罩边，勿贴满主窗口
+        let edge_x = (screen.width() * 0.08).clamp(28.0, 56.0);
+        let edge_y = (screen.height() * 0.09).clamp(28.0, 56.0);
+        let max_w = (screen.width() - edge_x * 2.0)
+            .min(screen.width() * 0.88)
+            .clamp(280.0, 1100.0);
+        let max_h = (screen.height() - edge_y * 2.0)
+            .min(screen.height() * 0.84)
+            .clamp(200.0, 680.0);
         let win_w = 960.0_f32.min(max_w);
         let win_h = 600.0_f32.min(max_h);
         let layout = SettingsLayout::for_window(win_w, win_h);
@@ -511,6 +516,8 @@ impl SettingsSession {
             .fixed_size([win_w, win_h])
             .resizable(false)
             .collapsible(false)
+            // 小窗去掉 egui 标题条，少占高度，也更像浮层而不是第二整窗
+            .title_bar(!layout.compact)
             .constrain_to(screen)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
