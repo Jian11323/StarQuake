@@ -20,11 +20,51 @@ RequestExecutionLevel admin
 
 Name "StarQuake ${DISPLAY_VERSION}"
 OutFile "${OUT_FILE}"
-InstallDir "$PROGRAMFILES32\StarQuake"
+; 这是个64位程序
+InstallDir "$PROGRAMFILES64\StarQuake"
 InstallDirRegKey HKLM "Software\StarQuake" "InstallDir"
 SetCompressor /SOLID lzma
 
 !include "MUI2.nsh"
+
+Function .onInit
+  ; 检查注册表中是否存在 StarQuake 的安装记录
+  ReadRegStr $0 HKLM "Software\StarQuake" "InstallDir"
+
+  ; 如果不存在安装记录，则正常启动安装程序
+  StrCmp $0 "" init_done
+
+  ; 提示用户是否卸载已安装的软件
+  MessageBox MB_YESNO|MB_ICONQUESTION \
+    "检测到 StarQuake 已安装在以下位置：$\r$\n$0$\r$\n$\r$\n是否卸载已安装的版本并继续安装？" \
+    IDYES uninstall_old \
+    IDNO cancel_install
+
+uninstall_old:
+  ; 检查旧版本的卸载程序是否存在
+  IfFileExists "$0\Uninstall.exe" 0 uninstall_missing
+
+  ; 启动旧版本的卸载程序，并等待卸载完成
+  ExecWait '"$0\Uninstall.exe" _?=$0' $1
+
+  ; 检查卸载程序的退出代码
+  StrCmp $1 0 init_done uninstall_failed
+
+uninstall_missing:
+  MessageBox MB_OK|MB_ICONEXCLAMATION \
+    "未找到旧版本的卸载程序，无法自动卸载。$\r$\n请手动卸载旧版本后再运行安装程序。"
+  Abort
+
+uninstall_failed:
+  MessageBox MB_OK|MB_ICONEXCLAMATION \
+    "旧版本卸载失败或未能正常完成，安装程序将退出。"
+  Abort
+
+cancel_install:
+  Abort
+
+init_done:
+FunctionEnd
 
 !define MUI_ABORTWARNING
 !define MUI_ICON "${DIST_DIR}\icon\brand\app.ico"
