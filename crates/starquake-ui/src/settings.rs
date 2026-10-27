@@ -115,6 +115,45 @@ const HEADER_H: f32 = 78.0;
 const NAV_BTN_H: f32 = 58.0;
 const FOOTER_H: f32 = 52.0;
 
+/// 随主窗口尺寸切换的设置页度量（小窗紧凑，避免底栏/侧栏被裁切）。
+#[derive(Clone, Copy)]
+struct SettingsLayout {
+    nav_w: f32,
+    header_h: f32,
+    nav_btn_h: f32,
+    footer_h: f32,
+    shell_margin_x: i8,
+    shell_margin_y: i8,
+    compact: bool,
+}
+
+impl SettingsLayout {
+    fn for_window(win_w: f32, win_h: f32) -> Self {
+        let compact = win_h < 520.0 || win_w < 720.0;
+        if compact {
+            Self {
+                nav_w: if win_w < 560.0 { 156.0 } else { 196.0 },
+                header_h: 52.0,
+                nav_btn_h: 42.0,
+                footer_h: 46.0,
+                shell_margin_x: 10,
+                shell_margin_y: 6,
+                compact: true,
+            }
+        } else {
+            Self {
+                nav_w: NAV_W,
+                header_h: HEADER_H,
+                nav_btn_h: NAV_BTN_H,
+                footer_h: FOOTER_H,
+                shell_margin_x: 28,
+                shell_margin_y: 18,
+                compact: false,
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SettingsTab {
     Sources,
@@ -457,12 +496,13 @@ impl SettingsSession {
                 }
             });
 
-        // 定死尺寸：禁止内容/avail 反馈抬升（先长高再拉宽的根因）
-        // 留边更大，避免小屏下窗体贴边/内容被系统标题栏裁切
-        let max_w = (screen.width() * 0.92).clamp(360.0, 1100.0);
-        let max_h = (screen.height() * 0.88).clamp(280.0, 680.0);
+        // 定死尺寸：禁止内容/avail 反馈抬升；尺寸随主窗口缩小，并始终锚在可视区中心
+        let edge = 10.0_f32;
+        let max_w = (screen.width() - edge * 2.0).clamp(300.0, 1100.0);
+        let max_h = (screen.height() - edge * 2.0).clamp(200.0, 680.0);
         let win_w = 960.0_f32.min(max_w);
         let win_h = 600.0_f32.min(max_h);
+        let layout = SettingsLayout::for_window(win_w, win_h);
 
         let mut still_open = self.open;
         egui::Window::new(format!("{} \u{00b7} {}", crate::APP_DISPLAY_NAME, t("设置")))
@@ -471,16 +511,15 @@ impl SettingsSession {
             .fixed_size([win_w, win_h])
             .resizable(false)
             .collapsible(false)
-            .constrain(true)
-            .pivot(egui::Align2::CENTER_CENTER)
-            .default_pos(screen.center())
+            .constrain_to(screen)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .frame(
                 Frame::NONE
                     .fill(chrome().page_bg)
                     .stroke(Stroke::new(1.0_f32, chrome().border))
                     .inner_margin(Margin::ZERO)
-                    .corner_radius(14.0),
+                    .corner_radius(if layout.compact { 10.0 } else { 14.0 }),
             )
             .show(ctx, |ui| {
                 ui.set_min_size(Vec2::new(win_w, win_h));
@@ -493,6 +532,7 @@ impl SettingsSession {
                     &mut restore,
                     &mut do_exchange,
                     &mut do_ip_locate,
+                    layout,
                 );
             });
         if !still_open {
@@ -721,10 +761,11 @@ fn draw_shell(
     restore: &mut bool,
     do_exchange: &mut bool,
     do_ip_locate: &mut bool,
+    layout: SettingsLayout,
 ) {
-    // RQ .shell inset
+    // RQ .shell inset（小窗收紧边距，给面板留高度）
     Frame::NONE
-        .inner_margin(Margin::symmetric(28, 18))
+        .inner_margin(Margin::symmetric(layout.shell_margin_x, layout.shell_margin_y))
         .show(ui, |ui| {
     let shell = ui.available_size();
     ui.set_max_size(shell);
@@ -733,37 +774,39 @@ fn draw_shell(
         egui::Layout::top_down(egui::Align::Min),
         |ui| {
             ui.set_max_size(shell);
-            // 页眉（RQ .header）
+            // 页眉（RQ .header）；紧凑模式只留标题一行
             Frame::NONE
-                .inner_margin(Margin::symmetric(4, 6))
+                .inner_margin(Margin::symmetric(4, if layout.compact { 2 } else { 6 }))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
                             ui.label(
                                 RichText::new(t("设置中心"))
                                     .strong()
-                                    .size(22.0)
+                                    .size(if layout.compact { 18.0 } else { 22.0 })
                                     .color(chrome().text),
                             );
-                            ui.label(
-                                RichText::new(t("StarQuake · 左侧分类与右侧内容合并为同一玻璃面板"))
-                                    .size(12.0)
-                                    .color(chrome().muted),
-                            );
+                            if !layout.compact {
+                                ui.label(
+                                    RichText::new(t("StarQuake · 左侧分类与右侧内容合并为同一玻璃面板"))
+                                        .size(12.0)
+                                        .color(chrome().muted),
+                                );
+                            }
                         });
                     });
                 });
 
             let avail = ui.available_size();
-            // 用剩余高度精确分配，禁止 set_min_size 按 avail 抬升（否则窗体会逐帧撑满）
-            let body_h = (avail.y - FOOTER_H - 8.0).max(200.0).min(avail.y.max(200.0));
+            // 剩余高度扣底栏；禁止再强制 min=200 把底栏挤出可视区
+            let body_h = (avail.y - layout.footer_h - 6.0).clamp(96.0, avail.y.max(96.0));
             let body_w = avail.x.max(100.0);
 
             // 统一面板（RQ .panel）
             Frame::NONE
                 .fill(chrome().content)
                 .stroke(Stroke::new(1.0_f32, chrome().border))
-                .corner_radius(14.0)
+                .corner_radius(if layout.compact { 10.0 } else { 14.0 })
                 .inner_margin(Margin::ZERO)
                 .show(ui, |ui| {
                     ui.set_max_size(Vec2::new(body_w, body_h));
@@ -772,31 +815,40 @@ fn draw_shell(
                         egui::Layout::left_to_right(egui::Align::TOP),
                         |ui| {
                             ui.set_max_size(Vec2::new(body_w, body_h));
-                            draw_nav(ui, session, body_h);
+                            draw_nav(ui, session, body_h, layout);
                             // 竖分割线
                             let (line, _) =
                                 ui.allocate_exact_size(Vec2::new(1.0, body_h), Sense::hover());
                             ui.painter().rect_filled(line, 0.0, chrome().divider);
 
-                            draw_main(ui, session, health, action, do_exchange, do_ip_locate, body_h);
+                            draw_main(
+                                ui,
+                                session,
+                                health,
+                                action,
+                                do_exchange,
+                                do_ip_locate,
+                                body_h,
+                                layout,
+                            );
                         },
                     );
                 });
 
-            ui.add_space(6.0);
+            ui.add_space(if layout.compact { 4.0 } else { 6.0 });
 
             // 底栏：StarQuake 草稿保存（RQ 即时写入；此处保留显式保存）
             Frame::NONE
                 .fill(chrome().footer_bg)
                 .stroke(Stroke::new(1.0_f32, chrome().divider))
                 .corner_radius(10.0)
-                .inner_margin(Margin::symmetric(14, 8))
+                .inner_margin(Margin::symmetric(if layout.compact { 8 } else { 14 }, 6))
                 .show(ui, |ui| {
                     if let Some(n) = session.save_note.as_deref() {
                         ui.label(RichText::new(n).size(11.5).color(chrome().muted));
                         ui.add_space(2.0);
                     }
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if glass_btn(ui, "恢复默认", false).clicked() {
                             *restore = true;
                         }
@@ -832,112 +884,145 @@ fn draw_shell(
         }); // shell inset
 }
 
-fn draw_nav(ui: &mut Ui, session: &mut SettingsSession, body_h: f32) {
+fn draw_nav(ui: &mut Ui, session: &mut SettingsSession, body_h: f32, layout: SettingsLayout) {
+    let nav_w = layout.nav_w;
     ui.allocate_ui_with_layout(
-        Vec2::new(NAV_W, body_h),
+        Vec2::new(nav_w, body_h),
         egui::Layout::top_down(egui::Align::Min),
         |ui| {
-            ui.set_min_width(NAV_W);
-            ui.set_max_width(NAV_W);
+            ui.set_min_width(nav_w);
+            ui.set_max_width(nav_w);
 
             let head_rect = ui
-                .allocate_exact_size(Vec2::new(NAV_W, HEADER_H), Sense::hover())
+                .allocate_exact_size(Vec2::new(nav_w, layout.header_h), Sense::hover())
                 .0;
             ui.painter().text(
-                Pos2::new(head_rect.left() + 18.0, head_rect.center().y),
+                Pos2::new(head_rect.left() + 14.0, head_rect.center().y),
                 egui::Align2::LEFT_CENTER,
                 t("应用设置"),
-                egui::FontId::proportional(15.0),
+                egui::FontId::proportional(if layout.compact { 13.5 } else { 15.0 }),
                 chrome().text,
             );
             paint_fade_rule(ui, head_rect, 12.0);
 
-            ui.add_space(8.0);
+            let nav_scroll_h = (body_h - layout.header_h - 4.0).max(48.0);
+            ScrollArea::vertical()
+                .id_salt("settings_nav")
+                .auto_shrink([false, false])
+                .max_height(nav_scroll_h)
+                .show(ui, |ui| {
+                    ui.set_max_width(nav_w);
+                    ui.add_space(6.0);
+                    for tab in SettingsTab::ALL {
+                        let selected = session.tab == tab;
+                        let accent = tab.accent();
+                        ui.horizontal(|ui| {
+                            ui.add_space(8.0);
+                            let (rect, resp) = ui.allocate_exact_size(
+                                Vec2::new((nav_w - 16.0).max(80.0), layout.nav_btn_h),
+                                Sense::click(),
+                            );
 
-            for tab in SettingsTab::ALL {
-                let selected = session.tab == tab;
-                let accent = tab.accent();
-                ui.horizontal(|ui| {
-                    ui.add_space(10.0);
-                    let (rect, resp) =
-                        ui.allocate_exact_size(Vec2::new(NAV_W - 20.0, NAV_BTN_H), Sense::click());
+                            let fill = if selected {
+                                Color32::from_rgba_unmultiplied(
+                                    accent.r(),
+                                    accent.g(),
+                                    accent.b(),
+                                    36,
+                                )
+                            } else if resp.hovered() {
+                                Color32::from_rgba_unmultiplied(255, 255, 255, 16)
+                            } else {
+                                Color32::TRANSPARENT
+                            };
+                            let stroke = if selected {
+                                Stroke::new(
+                                    1.0_f32,
+                                    Color32::from_rgba_unmultiplied(
+                                        accent.r(),
+                                        accent.g(),
+                                        accent.b(),
+                                        110,
+                                    ),
+                                )
+                            } else {
+                                Stroke::NONE
+                            };
+                            if selected {
+                                ui.painter().rect_filled(
+                                    rect,
+                                    10.0,
+                                    Color32::from_rgba_unmultiplied(255, 255, 255, 26),
+                                );
+                            }
+                            ui.painter().rect(
+                                rect,
+                                10.0,
+                                fill,
+                                stroke,
+                                egui::StrokeKind::Inside,
+                            );
+                            if selected {
+                                let y = rect.min.y + 1.0;
+                                ui.painter().line_segment(
+                                    [
+                                        Pos2::new(rect.min.x + 10.0, y),
+                                        Pos2::new(rect.max.x - 10.0, y),
+                                    ],
+                                    Stroke::new(
+                                        1.0_f32,
+                                        Color32::from_rgba_unmultiplied(255, 255, 255, 46),
+                                    ),
+                                );
+                            }
 
-                    let fill = if selected {
-                        Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 36)
-                    } else if resp.hovered() {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 16)
-                    } else {
-                        Color32::TRANSPARENT
-                    };
-                    let stroke = if selected {
-                        Stroke::new(1.0_f32,
-                            Color32::from_rgba_unmultiplied(
-                                accent.r(),
-                                accent.g(),
-                                accent.b(),
-                                110,
-                            ),
-                        )
-                    } else {
-                        Stroke::NONE
-                    };
-                    // Single fill + border (RQ .nav-btn.active); no split gloss layer.
-                    if selected {
-                        ui.painter().rect_filled(
-                            rect,
-                            10.0,
-                            Color32::from_rgba_unmultiplied(255, 255, 255, 26),
-                        );
+                            let icon_c = if selected { accent } else { chrome().muted };
+                            let title_c = if selected {
+                                chrome().text
+                            } else {
+                                chrome().text70
+                            };
+                            let cy = rect.center().y;
+                            ui.painter().text(
+                                Pos2::new(rect.left() + 12.0, cy),
+                                egui::Align2::LEFT_CENTER,
+                                tab.glyph(),
+                                egui::FontId::proportional(if layout.compact { 14.0 } else { 16.0 }),
+                                icon_c,
+                            );
+                            if layout.compact {
+                                ui.painter().text(
+                                    Pos2::new(rect.left() + 34.0, cy),
+                                    egui::Align2::LEFT_CENTER,
+                                    crate::i18n::t(tab.title()),
+                                    egui::FontId::proportional(12.5),
+                                    title_c,
+                                );
+                            } else {
+                                ui.painter().text(
+                                    Pos2::new(rect.left() + 38.0, cy - 8.0),
+                                    egui::Align2::LEFT_CENTER,
+                                    crate::i18n::t(tab.title()),
+                                    egui::FontId::proportional(13.5),
+                                    title_c,
+                                );
+                                ui.painter().text(
+                                    Pos2::new(rect.left() + 38.0, cy + 9.0),
+                                    egui::Align2::LEFT_CENTER,
+                                    crate::i18n::t(tab.subtitle()),
+                                    egui::FontId::proportional(10.5),
+                                    chrome().muted,
+                                );
+                            }
+
+                            if resp.clicked() {
+                                session.tab = tab;
+                            }
+                        });
+                        ui.add_space(if layout.compact { 2.0 } else { 4.0 });
                     }
-                    ui.painter()
-                        .rect(rect, 10.0, fill, stroke, egui::StrokeKind::Inside);
-                    if selected {
-                        // Thin top inset highlight; keeps the selected fill as one band.
-                        let y = rect.min.y + 1.0;
-                        ui.painter().line_segment(
-                            [
-                                Pos2::new(rect.min.x + 10.0, y),
-                                Pos2::new(rect.max.x - 10.0, y),
-                            ],
-                            Stroke::new(
-                                1.0_f32,
-                                Color32::from_rgba_unmultiplied(255, 255, 255, 46),
-                            ),
-                        );
-                    }
-
-                    let icon_c = if selected { accent } else { chrome().muted };
-                    let title_c = if selected { chrome().text } else { chrome().text70 };
-                    let cy = rect.center().y;
-                    // Icon + two-line meta vertically centered as one group.
-                    ui.painter().text(
-                        Pos2::new(rect.left() + 14.0, cy),
-                        egui::Align2::LEFT_CENTER,
-                        tab.glyph(),
-                        egui::FontId::proportional(16.0),
-                        icon_c,
-                    );
-                    ui.painter().text(
-                        Pos2::new(rect.left() + 38.0, cy - 8.0),
-                        egui::Align2::LEFT_CENTER,
-                        crate::i18n::t(tab.title()),
-                        egui::FontId::proportional(13.5),
-                        title_c,
-                    );
-                    ui.painter().text(
-                        Pos2::new(rect.left() + 38.0, cy + 9.0),
-                        egui::Align2::LEFT_CENTER,
-                        crate::i18n::t(tab.subtitle()),
-                        egui::FontId::proportional(10.5),
-                        chrome().muted,
-                    );
-
-                    if resp.clicked() {
-                        session.tab = tab;
-                    }
+                    ui.add_space(6.0);
                 });
-                ui.add_space(4.0);
-            }
         },
     );
 }
@@ -950,6 +1035,7 @@ fn draw_main(
     do_exchange: &mut bool,
     do_ip_locate: &mut bool,
     body_h: f32,
+    layout: SettingsLayout,
 ) {
     let w = ui.available_width();
     ui.allocate_ui_with_layout(
@@ -961,11 +1047,12 @@ fn draw_main(
 
             // 内容头（RQ .content-head）
             let head = ui
-                .allocate_exact_size(Vec2::new(ui.available_width(), HEADER_H), Sense::hover())
+                .allocate_exact_size(Vec2::new(ui.available_width(), layout.header_h), Sense::hover())
                 .0;
+            let icon_sz = if layout.compact { 28.0 } else { 36.0 };
             let icon_rect = Rect::from_center_size(
-                Pos2::new(head.left() + 36.0, head.center().y),
-                Vec2::splat(36.0),
+                Pos2::new(head.left() + 20.0 + icon_sz * 0.5, head.center().y),
+                Vec2::splat(icon_sz),
             );
             ui.painter().rect(
                 icon_rect,
@@ -978,26 +1065,37 @@ fn draw_main(
                 icon_rect.center(),
                 egui::Align2::CENTER_CENTER,
                 tab.glyph(),
-                egui::FontId::proportional(18.0),
+                egui::FontId::proportional(if layout.compact { 15.0 } else { 18.0 }),
                 accent,
             );
-            ui.painter().text(
-                Pos2::new(head.left() + 62.0, head.center().y - 9.0),
-                egui::Align2::LEFT_CENTER,
-                tab.title(),
-                egui::FontId::proportional(16.0),
-                chrome().text,
-            );
-            ui.painter().text(
-                Pos2::new(head.left() + 62.0, head.center().y + 10.0),
-                egui::Align2::LEFT_CENTER,
-                tab.subtitle(),
-                egui::FontId::proportional(11.5),
-                chrome().muted,
-            );
+            let text_x = icon_rect.right() + 10.0;
+            if layout.compact {
+                ui.painter().text(
+                    Pos2::new(text_x, head.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    crate::i18n::t(tab.title()),
+                    egui::FontId::proportional(14.0),
+                    chrome().text,
+                );
+            } else {
+                ui.painter().text(
+                    Pos2::new(text_x, head.center().y - 9.0),
+                    egui::Align2::LEFT_CENTER,
+                    crate::i18n::t(tab.title()),
+                    egui::FontId::proportional(16.0),
+                    chrome().text,
+                );
+                ui.painter().text(
+                    Pos2::new(text_x, head.center().y + 10.0),
+                    egui::Align2::LEFT_CENTER,
+                    crate::i18n::t(tab.subtitle()),
+                    egui::FontId::proportional(11.5),
+                    chrome().muted,
+                );
+            }
             paint_fade_rule(ui, head, 14.0);
 
-            let scroll_h = (body_h - HEADER_H - 4.0).max(64.0);
+            let scroll_h = (body_h - layout.header_h - 4.0).max(48.0);
             ScrollArea::vertical()
                 .auto_shrink([false, false])
                 .max_height(scroll_h)
@@ -1005,13 +1103,13 @@ fn draw_main(
                 .show(ui, |ui| {
                     // 只限宽，不把 available 写成 min（避免窗体逐帧加宽）
                     ui.set_max_width(ui.available_width());
-                    ui.add_space(8.0);
+                    ui.add_space(if layout.compact { 4.0 } else { 8.0 });
                     Frame::NONE
-                        .inner_margin(Margin::symmetric(16, 8))
+                        .inner_margin(Margin::symmetric(if layout.compact { 10 } else { 16 }, 8))
                         .show(ui, |ui| {
                             draw_content(ui, session, health, action, do_exchange, do_ip_locate);
                         });
-                    ui.add_space(16.0);
+                    ui.add_space(12.0);
                 });
         },
     );
