@@ -510,14 +510,15 @@ impl SettingsSession {
         let layout = SettingsLayout::for_window(win_w, win_h);
 
         let mut still_open = self.open;
+        let mut header_close = false;
         egui::Window::new(format!("{} \u{00b7} {}", crate::APP_DISPLAY_NAME, t("设置")))
             .id(egui::Id::new(("starquake_settings_embedded", self.open_gen)))
             .open(&mut still_open)
             .fixed_size([win_w, win_h])
             .resizable(false)
             .collapsible(false)
-            // 小窗去掉 egui 标题条，少占高度，也更像浮层而不是第二整窗
-            .title_bar(!layout.compact)
+            // 不用 egui 标题条：关闭改由页眉右上角 X，小窗也不丢关闭入口
+            .title_bar(false)
             .constrain_to(screen)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
@@ -540,9 +541,10 @@ impl SettingsSession {
                     &mut do_exchange,
                     &mut do_ip_locate,
                     layout,
+                    &mut header_close,
                 );
             });
-        if !still_open {
+        if !still_open || header_close {
             close_requested = true;
         }
         self.open = still_open;
@@ -769,6 +771,7 @@ fn draw_shell(
     do_exchange: &mut bool,
     do_ip_locate: &mut bool,
     layout: SettingsLayout,
+    header_close: &mut bool,
 ) {
     // RQ .shell inset（小窗收紧边距，给面板留高度）
     Frame::NONE
@@ -781,7 +784,7 @@ fn draw_shell(
         egui::Layout::top_down(egui::Align::Min),
         |ui| {
             ui.set_max_size(shell);
-            // 页眉（RQ .header）；紧凑模式只留标题一行
+            // 页眉（RQ .header）；右上角关闭 X
             Frame::NONE
                 .inner_margin(Margin::symmetric(4, if layout.compact { 2 } else { 6 }))
                 .show(ui, |ui| {
@@ -799,6 +802,11 @@ fn draw_shell(
                                         .size(12.0)
                                         .color(chrome().muted),
                                 );
+                            }
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if settings_close_btn(ui, layout.compact).clicked() {
+                                *header_close = true;
                             }
                         });
                     });
@@ -1300,6 +1308,38 @@ pub(super) fn control_field_below(
         ui.add_space(44.0);
         edit(ui);
     });
+}
+
+fn settings_close_btn(ui: &mut Ui, compact: bool) -> egui::Response {
+    let side = if compact { 28.0 } else { 32.0 };
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
+    let fill = if resp.hovered() {
+        Color32::from_rgba_unmultiplied(239, 68, 68, 56)
+    } else {
+        chrome().ghost_bg
+    };
+    ui.painter()
+        .rect_filled(rect, 8.0, fill);
+    if resp.hovered() {
+        ui.painter().rect_stroke(
+            rect,
+            8.0,
+            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(239, 68, 68, 140)),
+            egui::StrokeKind::Inside,
+        );
+    }
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "\u{00d7}",
+        egui::FontId::proportional(if compact { 18.0 } else { 20.0 }),
+        if resp.hovered() {
+            Color32::from_rgb(0xEF, 0x44, 0x44)
+        } else {
+            chrome().text70
+        },
+    );
+    resp.on_hover_text(t("关闭"))
 }
 
 fn glass_btn(ui: &mut Ui, text: &str, emphasized: bool) -> egui::Response {
