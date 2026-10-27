@@ -584,45 +584,7 @@ impl MainShell {
                     .collect();
                 // 设置打开且非地图选点：跳过全量地图镶嵌（遮罩挡住，刷了只烧 GPU）
                 let paint_map = !self.settings.open || self.settings.map_pick.is_some();
-                if !paint_map {
-                    let _ = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
-                } else {
-                map_ui = self.map.ui(
-                    ui,
-                    snap.active.as_ref(),
-                    &wave_owned,
-                    &wave_owned,
-                    &marker_nums,
-                    travel,
-                    now_ms,
-                    show_waves,
-                    &snap.stations,
-                    &snap.records,
-                    volcanoes_for_map,
-                    selected_volcano,
-                    weather_for_map,
-                    selected_weather,
-                    if cfg.ui.show_local_hypo {
-                        snap.local_hypo.as_ref()
-                    } else {
-                        None
-                    },
-                    None,
-                    if show_typhoons_map {
-                        snap.typhoons.as_slice()
-                    } else {
-                        &[]
-                    },
-                    &cfg.ui.typhoon_forecast_agency,
-                    home,
-                    snap.tsunami.as_ref(),
-                    &radars,
-                    snap.precip.as_ref(),
-                    cfg.ui.show_faults,
-                    cfg.sources.map_wx.radar_opacity,
-                    cfg.sources.map_wx.precip_opacity,
-                );
-                }
+                // S 波跟焦须在 map.ui 之前改相机，本帧才能 soft_anim + 新 zoom 同帧绘制
                 if paint_map
                     && cfg.ui.auto_zoom_waves
                     && show_waves
@@ -689,6 +651,9 @@ impl MainShell {
                             fit_z
                         };
                         let dt = ctx.input(|i| i.unstable_dt as f64).clamp(1e-4, 0.25);
+                        let zoom_before = self.map.zoom;
+                        let lon_before = self.map.center_lon;
+                        let lat_before = self.map.center_lat;
                         self.map.apply_linear_zoom_out(
                             z,
                             0.18,
@@ -696,11 +661,56 @@ impl MainShell {
                             Some(ev.longitude),
                             Some(ev.latitude),
                         );
-                        starquake_map::request_repaint_after_capped(
-                            ctx,
-                            cfg.performance.wave_repaint_ms(),
-                        );
+                        // 跟焦改 zoom/中心时用目标帧率，避免 wave_repaint 过稀导致一顿一顿
+                        let cam_moved = (self.map.zoom - zoom_before).abs() > 1e-4
+                            || (self.map.center_lon - lon_before).abs() > 1e-6
+                            || (self.map.center_lat - lat_before).abs() > 1e-6;
+                        let follow_ms = if cam_moved {
+                            cfg.performance.repaint_interval_ms().min(33)
+                        } else {
+                            cfg.performance.wave_repaint_ms()
+                        };
+                        starquake_map::request_repaint_after_capped(ctx, follow_ms);
                     }
+                }
+                if !paint_map {
+                    let _ = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
+                } else {
+                map_ui = self.map.ui(
+                    ui,
+                    snap.active.as_ref(),
+                    &wave_owned,
+                    &wave_owned,
+                    &marker_nums,
+                    travel,
+                    now_ms,
+                    show_waves,
+                    &snap.stations,
+                    &snap.records,
+                    volcanoes_for_map,
+                    selected_volcano,
+                    weather_for_map,
+                    selected_weather,
+                    if cfg.ui.show_local_hypo {
+                        snap.local_hypo.as_ref()
+                    } else {
+                        None
+                    },
+                    None,
+                    if show_typhoons_map {
+                        snap.typhoons.as_slice()
+                    } else {
+                        &[]
+                    },
+                    &cfg.ui.typhoon_forecast_agency,
+                    home,
+                    snap.tsunami.as_ref(),
+                    &radars,
+                    snap.precip.as_ref(),
+                    cfg.ui.show_faults,
+                    cfg.sources.map_wx.radar_opacity,
+                    cfg.sources.map_wx.precip_opacity,
+                );
                 }
                 // 预警条/海啸/右上测站台风/图例/时钟：相对 1280x720 等比，上限 1.0
                 let panel_z = ui_z;

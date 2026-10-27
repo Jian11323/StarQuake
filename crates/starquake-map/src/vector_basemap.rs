@@ -594,29 +594,24 @@ impl VectorBasemap {
             self.paint_cache = None;
         }
 
-        // 平面同缩放：小幅平移可复用 mesh；超过视口约 28% 必须重建，否则新露出岸线（如海南）进不了 mesh
-        let can_shift = self.paint_cache.as_ref().is_some_and(|c| {
+        // 平面：跟焦缩放/微移时对满质 mesh 做缩放+平移；漂移过大再重建
+        let can_xform = self.paint_cache.as_ref().is_some_and(|c| {
             !view.mode.is_globe()
                 && !c.fly_lite
-                && c.base_key == base_key
-                && (c.build_zoom - view.zoom).abs() < 1e-9
+                && c.interact_key == interact_key
+                && (c.build_zoom - view.zoom).abs() <= 0.55
         });
-        if can_shift {
+        if can_xform {
             if let Some(c) = self.paint_cache.as_mut() {
-                if let Some((dx, dy)) = vector_flat_pan_delta(c.mesh_lon, c.mesh_lat, view) {
-                    let shift_limit = rect.width().max(rect.height()) * 0.28;
-                    if dx.abs() > shift_limit || dy.abs() > shift_limit {
-                        // 落入下方完整重建
-                    } else {
-                        if dx.abs() > 0.05 || dy.abs() > 0.05 {
-                            Arc::make_mut(&mut c.mesh).translate(egui::Vec2::new(dx, dy));
-                            c.mesh_lon = view.center_lon;
-                            c.mesh_lat = view.center_lat;
-                        }
-                        c.key = cache_key;
-                        painter.add(egui::Shape::Mesh(c.mesh.clone()));
-                        return;
-                    }
+                let shift_limit = rect.width().max(rect.height()) * 0.28;
+                let pan_too_far = vector_flat_pan_delta(c.mesh_lon, c.mesh_lat, view)
+                    .map(|(dx, dy)| dx.abs() > shift_limit || dy.abs() > shift_limit)
+                    .unwrap_or(true);
+                if !pan_too_far && apply_flat_mesh_view_delta(c, view) {
+                    c.key = cache_key;
+                    c.base_key = base_key;
+                    painter.add(egui::Shape::Mesh(c.mesh.clone()));
+                    return;
                 }
             }
         }

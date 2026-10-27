@@ -105,9 +105,20 @@ use std::sync::Arc;
 const ZOOM_MIN: f64 = 2.0;
 const ZOOM_MAX: f64 = 12.0;
 
-/// 视角静止时复用的底图/断层/测站 mesh，波圈等动态层仍每帧绘制。
+/// 视角静止时复用的底图/断层 mesh，波圈等动态层仍每帧绘制。
+/// S 波跟焦缩放时对已镶嵌层做平面缩放+平移，避免每帧全量重画导致顿挫。
 struct StillStatic {
     key: u64,
+    /// 不含中心/缩放的稳定键（质量、样式、是否断层等）
+    base_key: u64,
+    /// 上次全量重建锚点（漂移过大才重裁）
+    anchor_lon: f64,
+    anchor_lat: f64,
+    anchor_zoom: f64,
+    /// 当前 mesh 已对齐的视角
+    mesh_lon: f64,
+    mesh_lat: f64,
+    mesh_zoom: f64,
     layers: Vec<Arc<egui::epaint::Mesh>>,
 }
 
@@ -138,9 +149,11 @@ pub struct MapViewport {
     paint_quality: PaintQuality,
     /// 平面静默测站 mesh（拖图平移复用）
     station_cache: overlay::StationPaintCache,
-    /// 非交互时合成底图层，避免波圈动画每帧再走一遍矢量/断层/测站路径
+    /// 非交互时合成底图层，避免波圈动画每帧再走一遍矢量路径
     still_static: Option<StillStatic>,
     show_terminator: bool,
+    /// S 波跟焦等程序改镜头：下一帧按「软交互」画断层（量化/变换，勿每帧全量）
+    follow_cam_anim: bool,
 }
 
 impl Default for MapViewport {
@@ -171,6 +184,7 @@ impl Default for MapViewport {
             station_cache: overlay::StationPaintCache::default(),
             still_static: None,
             show_terminator: false,
+            follow_cam_anim: false,
         }
     }
 }
@@ -343,13 +357,13 @@ impl MapViewport {
             self.center_lat = elat;
             self.zoom = ez;
             self.flight = None;
-            // 落地必须重建矢量/断层：飞跃中复用会把视口外岸线与断层「永远画不出来」
+            // 落地：矢量/断层标记重建但保留旧 mesh，避免闪没与主线程同步全量
             self.vector.invalidate_paint_cache();
             self.faults.invalidate_paint_cache();
             self.still_static = None;
-            // 短暂抑制落地弹簧；过长会挡住 S 波跟焦缩小
+            // 短冷却，尽快把 S 波跟焦接上
             self.post_flight_until =
-                Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(0.85));
+                Some(std::time::Instant::now() + std::time::Duration::from_secs_f64(0.28));
         }
         !done
     }
@@ -382,6 +396,9 @@ impl MapViewport {
         if (target - self.zoom).abs() < 0.02 && focus_lon.is_none() {
             return;
         }
+        let z0 = self.zoom;
+        let lon0 = self.center_lon;
+        let lat0 = self.center_lat;
         let dt = dt.clamp(1e-4, 0.25);
         if target < self.zoom - 0.02 {
             let step = zoom_out_per_sec.clamp(0.05, 2.0) * dt;
@@ -409,6 +426,12 @@ impl MapViewport {
                 self.center_lon = projection::normalize_lon(self.center_lon + dlon * kb);
                 self.center_lat = self.clamp_view_lat(self.center_lat + dlat * kb);
             }
+        }
+        if (self.zoom - z0).abs() > 1e-6
+            || (self.center_lon - lon0).abs() > 1e-6
+            || (self.center_lat - lat0).abs() > 1e-6
+        {
+            self.follow_cam_anim = true;
         }
     }
 
@@ -552,8 +575,11 @@ impl MapViewport {
             self.zoom,
             rect,
         );
-        // 手动拖/滚轮保持完整底图与测站（lite 会变粗线、丢小岛并闪烁）；仅飞跃降质
+        // 手动拖/滚轮；S 波跟焦算软交互（断层走变换/量化，勿每帧全量）
+        let soft_anim = self.follow_cam_anim;
+        self.follow_cam_anim = false;
         let interacting = dragging || flying;
+        let fault_interact = interacting || soft_anim;
         let want_vector = globe || self.basemap.show_vector();
         let still_key = still_static_key(
             &view,
@@ -563,11 +589,39 @@ impl MapViewport {
             want_vector,
             show_faults,
         );
-        let still_hit = !interacting
+        let still_base = still_static_base_key(
+            &view,
+            self.paint_quality,
+            self.ocean_fill,
+            self.vector_style,
+            want_vector,
+            show_faults,
+        );
+        // 平面：拖/滚轮/跟焦均可变换已缓存层（飞跃仍走完整路径）；漂移过大再重建
+        let still_can_xform = !flying
+            && !globe
+            && self.still_static.as_ref().is_some_and(|s| {
+                s.base_key == still_base
+                    && !s.layers.is_empty()
+                    && (s.key == still_key
+                        || still_view_drift_ok(
+                            s.anchor_lon,
+                            s.anchor_lat,
+                            s.anchor_zoom,
+                            &view,
+                        ))
+            });
+        let still_transformed = still_can_xform
             && self
                 .still_static
-                .as_ref()
-                .is_some_and(|s| s.key == still_key && !s.layers.is_empty());
+                .as_mut()
+                .is_some_and(|s| apply_still_static_view_delta(s, &view, still_key));
+        let still_hit = still_transformed
+            || (!interacting
+                && self
+                    .still_static
+                    .as_ref()
+                    .is_some_and(|s| s.key == still_key && !s.layers.is_empty()));
 
         ui.painter().rect_filled(rect, 0.0, self.ocean_fill);
 
@@ -590,7 +644,7 @@ impl MapViewport {
         }
 
         if still_hit {
-            // 波圈/空闲重绘：直接贴已镶嵌底图+断层，跳过矢量路径与 tessellate
+            // 仅贴矢量静止层（可缩放平移）；断层不进 still，避免省界 LOD 切换时连带闪没
             let painter = ui.painter_at(rect);
             if let Some(s) = self.still_static.as_ref() {
                 for mesh in &s.layers {
@@ -607,48 +661,43 @@ impl MapViewport {
                     self.vector_style,
                     /* skip_world_stroke */ false,
                     self.paint_quality,
-                    /* lite */ false,
+                    /* lite */ flying,
                 );
             }
 
-            // 飞跃中不画断层（每帧 sync 镶嵌会拖垮高缩放跳转）；落地 invalidate 后再建
-            if show_faults && !flying {
-                let dark = self.ocean_fill.r() < 80;
-                self.faults
-                    .paint(ui, &view, dark, self.paint_quality, interacting);
-            }
-
-            if interacting {
+            if flying {
+                // 飞跃跨度大，丢弃静止层；普通拖/缩保留以便变换复用
                 self.still_static = None;
-            } else {
-                let mut layers = Vec::with_capacity(2);
+            } else if !still_hit {
+                let mut layers = Vec::with_capacity(1);
                 if want_vector {
                     if let Some(m) = self.vector.still_mesh() {
                         layers.push(m);
                     }
                 }
-                // 断层开启却还没有 mesh（飞跃刚落地首帧前）时不要缓存 still，
-                // 否则会跳过 paint，表现为「要手拖一下才出断层」
-                let faults_ok = if show_faults {
-                    match self.faults.still_mesh() {
-                        Some(m) => {
-                            layers.push(m);
-                            true
-                        }
-                        None => false,
-                    }
-                } else {
-                    true
-                };
-                self.still_static = if layers.is_empty() || !faults_ok {
+                self.still_static = if layers.is_empty() {
                     None
                 } else {
                     Some(StillStatic {
                         key: still_key,
+                        base_key: still_base,
+                        anchor_lon: view.center_lon,
+                        anchor_lat: view.center_lat,
+                        anchor_zoom: view.zoom,
+                        mesh_lon: view.center_lon,
+                        mesh_lat: view.center_lat,
+                        mesh_zoom: view.zoom,
                         layers,
                     })
                 };
             }
+        }
+
+        // 断层始终单独绘制：不与省界/矢量 still 绑死；跟焦用 soft_anim 降重建频率
+        if show_faults {
+            let dark = self.ocean_fill.r() < 80;
+            self.faults
+                .paint(ui, &view, dark, self.paint_quality, fault_interact);
         }
 
         // JMA 海啸：按沿岸预报区描边闪烁（不对中日外轮廓整圈描边）
@@ -811,7 +860,7 @@ impl MapViewport {
     }
 }
 
-fn still_static_key(
+fn still_static_base_key(
     view: &ViewCtx,
     quality: PaintQuality,
     ocean: Color32,
@@ -821,9 +870,6 @@ fn still_static_key(
 ) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    view.center_lon.to_bits().hash(&mut h);
-    view.center_lat.to_bits().hash(&mut h);
-    view.zoom.to_bits().hash(&mut h);
     (view.rect.width() as i32).hash(&mut h);
     (view.rect.height() as i32).hash(&mut h);
     (view.rect.min.x as i32).hash(&mut h);
@@ -836,7 +882,102 @@ fn still_static_key(
     style.admin_border.to_array().hash(&mut h);
     want_vector.hash(&mut h);
     show_faults.hash(&mut h);
+    // 不把省界阈值写进 base：跟焦连续缩放过 7.5 时勿每帧打爆矢量重建（漂移够大仍会重裁）
     h.finish()
+}
+
+fn still_static_key(
+    view: &ViewCtx,
+    quality: PaintQuality,
+    ocean: Color32,
+    style: VectorStyle,
+    want_vector: bool,
+    show_faults: bool,
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    still_static_base_key(view, quality, ocean, style, want_vector, show_faults).hash(&mut h);
+    view.center_lon.to_bits().hash(&mut h);
+    view.center_lat.to_bits().hash(&mut h);
+    view.zoom.to_bits().hash(&mut h);
+    h.finish()
+}
+
+/// 跟焦缩放允许的视角漂移：过大则需重裁剪，否则边缘会空白。
+fn still_view_drift_ok(build_lon: f64, build_lat: f64, build_zoom: f64, view: &ViewCtx) -> bool {
+    // S 波慢缩常跨 1 级以上；过紧会每帧打爆矢量重绘导致自动缩放卡顿
+    if (view.zoom - build_zoom).abs() > 1.15 {
+        return false;
+    }
+    let dlat = (view.center_lat - build_lat).abs();
+    let mut dlon = (view.center_lon - build_lon).abs();
+    if dlon > 180.0 {
+        dlon = 360.0 - dlon;
+    }
+    dlat <= 3.5 && dlon <= 3.5
+}
+
+/// 平面仍图层：按 zoom 差缩放 + 中心平移，供 S 波线性跟焦复用。
+fn apply_still_static_view_delta(s: &mut StillStatic, view: &ViewCtx, new_key: u64) -> bool {
+    if s.key == new_key {
+        return true;
+    }
+    if view.mode.is_globe() {
+        return false;
+    }
+    let dz = view.zoom - s.mesh_zoom;
+    let scale = if dz.abs() > 1e-9 {
+        let sc = 2f32.powf(dz as f32);
+        if !sc.is_finite() || sc < 1e-4 || sc > 1e4 {
+            return false;
+        }
+        sc
+    } else {
+        1.0
+    };
+    let (dx, dy) = flat_still_pan_delta(s.mesh_lon, s.mesh_lat, view).unwrap_or((0.0, 0.0));
+    let need_s = (scale - 1.0).abs() > 1e-6;
+    let need_t = dx.abs() > 0.05 || dy.abs() > 0.05;
+    if need_s || need_t {
+        let origin = view.rect.center();
+        for layer in &mut s.layers {
+            let mesh = Arc::make_mut(layer);
+            if need_s && need_t {
+                let t = egui::vec2(dx, dy);
+                for v in &mut mesh.vertices {
+                    v.pos = origin + (v.pos - origin) * scale + t;
+                }
+            } else if need_s {
+                for v in &mut mesh.vertices {
+                    v.pos = origin + (v.pos - origin) * scale;
+                }
+            } else {
+                mesh.translate(egui::vec2(dx, dy));
+            }
+        }
+    }
+    s.mesh_zoom = view.zoom;
+    s.mesh_lon = view.center_lon;
+    s.mesh_lat = view.center_lat;
+    s.key = new_key;
+    true
+}
+
+fn flat_still_pan_delta(build_lon: f64, build_lat: f64, view: &ViewCtx) -> Option<(f32, f32)> {
+    let (x0, y0) = projection::lonlat_to_world(build_lon, build_lat, view.zoom);
+    let (x1, y1) = projection::lonlat_to_world(view.center_lon, view.center_lat, view.zoom);
+    let mut dx_w = x0 - x1;
+    let world = projection::world_size(view.zoom);
+    if dx_w > world * 0.5 {
+        dx_w -= world;
+    } else if dx_w < -world * 0.5 {
+        dx_w += world;
+    }
+    let dy_w = y0 - y1;
+    if dx_w.abs() > world * 0.45 {
+        return None;
+    }
+    Some((dx_w as f32, dy_w as f32))
 }
 
 /// 粗略角距离（度），用于判断是否值得开飞跃动画。
