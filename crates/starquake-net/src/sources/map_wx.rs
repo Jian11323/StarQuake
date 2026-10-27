@@ -48,14 +48,16 @@ pub fn spawn(tx: NetTx, cfg: MapWxSourceConfig) -> Vec<JoinHandle<()>> {
             }
         };
 
-        // 错开与台风等同 IP GET 限流
-        sleep(Duration::from_millis(1800)).await;
+        // 错开与台风等同 IP GET 限流（缩短首包等待）
+        sleep(Duration::from_millis(600)).await;
 
         loop {
             emit_health(&tx, "map_wx", HealthStatus::Fluctuating);
             let mut ok_any = false;
             let mut rate_limited = false;
 
+            // 已开启的雷达并行拉取，避免串行 + 间隔导致首帧过慢
+            let mut radar_jobs = Vec::new();
             for kind in RadarKind::ALL {
                 let on = match kind {
                     RadarKind::China => cfg.radar_china,
@@ -67,11 +69,16 @@ pub fn spawn(tx: NetTx, cfg: MapWxSourceConfig) -> Vec<JoinHandle<()>> {
                     continue;
                 }
                 let url = match kind {
-                    RadarKind::China => cfg.radar_china_url.as_str(),
-                    RadarKind::Japan => cfg.radar_japan_url.as_str(),
-                    RadarKind::Taiwan => cfg.radar_taiwan_url.as_str(),
+                    RadarKind::China => cfg.radar_china_url.clone(),
+                    RadarKind::Japan => cfg.radar_japan_url.clone(),
+                    RadarKind::Taiwan => cfg.radar_taiwan_url.clone(),
                 };
-                match fetch_radar(&client, url, kind).await {
+                let client = client.clone();
+                radar_jobs.push(async move { (kind, fetch_radar(&client, &url, kind).await) });
+            }
+            let radar_results = futures_util::future::join_all(radar_jobs).await;
+            for (kind, result) in radar_results {
+                match result {
                     Ok(frame) => {
                         let _ = tx.send(NetEvent::Radar {
                             kind,
@@ -81,11 +88,10 @@ pub fn spawn(tx: NetTx, cfg: MapWxSourceConfig) -> Vec<JoinHandle<()>> {
                     }
                     Err(FetchErr::RateLimited) => {
                         rate_limited = true;
-                        warn!(%url, "map_wx radar 429");
+                        warn!(?kind, "map_wx radar 429");
                     }
-                    Err(FetchErr::Other(e)) => warn!(%url, "map_wx radar: {e}"),
+                    Err(FetchErr::Other(e)) => warn!(?kind, "map_wx radar: {e}"),
                 }
-                sleep(Duration::from_millis(1100)).await;
             }
 
             if precip_h > 0 {
@@ -167,7 +173,13 @@ async fn fetch_radar(
         .bytes()
         .await
         .map_err(|e| FetchErr::Other(e.to_string()))?;
-    parse_radar_json(&body, kind).map_err(FetchErr::Other)
+    // PNG 解码放到阻塞池，避免拖垮 tokio 调度
+    let kind_copy = kind;
+    let parsed = tokio::task::spawn_blocking(move || parse_radar_json(&body, kind_copy))
+        .await
+        .map_err(|e| FetchErr::Other(format!("join: {e}")))?
+        .map_err(FetchErr::Other)?;
+    Ok(parsed)
 }
 
 fn parse_radar_json(body: &[u8], kind: RadarKind) -> Result<RadarFrame, String> {
@@ -211,6 +223,12 @@ fn parse_radar_json(body: &[u8], kind: RadarKind) -> Result<RadarFrame, String> 
     if png.is_empty() {
         return Err("empty png".into());
     }
+    let img = image::load_from_memory(&png)
+        .map_err(|e| format!("png decode: {e}"))?
+        .to_rgba8();
+    let width = img.width();
+    let height = img.height();
+    let rgba = Arc::new(img.into_raw());
     Ok(RadarFrame {
         kind,
         time,
@@ -218,7 +236,9 @@ fn parse_radar_json(body: &[u8], kind: RadarKind) -> Result<RadarFrame, String> 
         sw_lon,
         ne_lat,
         ne_lon,
-        png: Arc::new(png),
+        width,
+        height,
+        rgba,
     })
 }
 

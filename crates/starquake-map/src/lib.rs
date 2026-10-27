@@ -343,8 +343,9 @@ impl MapViewport {
             self.center_lat = elat;
             self.zoom = ez;
             self.flight = None;
-            // 落地必须重建矢量 mesh：飞跃中平移复用会把视口外岸线「永远画不出来」
+            // 落地必须重建矢量/断层：飞跃中复用会把视口外岸线与断层「永远画不出来」
             self.vector.invalidate_paint_cache();
+            self.faults.invalidate_paint_cache();
             self.still_static = None;
             // 短暂抑制落地弹簧；过长会挡住 S 波跟焦缩小
             self.post_flight_until =
@@ -480,6 +481,8 @@ impl MapViewport {
             request_repaint_after_capped(ui.ctx(), 50);
         }
         if self.faults.poll(ui.ctx()) {
+            // 后台断层刷完必须卸 still_static，否则会一直贴飞跃前的旧 mesh
+            self.still_static = None;
             request_repaint_after_capped(ui.ctx(), 33);
         }
         self.markers.ensure(ui.ctx());
@@ -608,16 +611,11 @@ impl MapViewport {
                 );
             }
 
-            // 活动断层：矢量轮廓之上、事件叠加之下；瓦片底图时也绘制
-            if show_faults {
+            // 飞跃中不画断层（每帧 sync 镶嵌会拖垮高缩放跳转）；落地 invalidate 后再建
+            if show_faults && !flying {
                 let dark = self.ocean_fill.r() < 80;
-                let fault_q = if flying {
-                    self.paint_quality.while_interacting()
-                } else {
-                    self.paint_quality
-                };
                 self.faults
-                    .paint(ui, &view, dark, fault_q, interacting);
+                    .paint(ui, &view, dark, self.paint_quality, interacting);
             }
 
             if interacting {
@@ -629,12 +627,20 @@ impl MapViewport {
                         layers.push(m);
                     }
                 }
-                if show_faults {
-                    if let Some(m) = self.faults.still_mesh() {
-                        layers.push(m);
+                // 断层开启却还没有 mesh（飞跃刚落地首帧前）时不要缓存 still，
+                // 否则会跳过 paint，表现为「要手拖一下才出断层」
+                let faults_ok = if show_faults {
+                    match self.faults.still_mesh() {
+                        Some(m) => {
+                            layers.push(m);
+                            true
+                        }
+                        None => false,
                     }
-                }
-                self.still_static = if layers.is_empty() {
+                } else {
+                    true
+                };
+                self.still_static = if layers.is_empty() || !faults_ok {
                     None
                 } else {
                     Some(StillStatic {

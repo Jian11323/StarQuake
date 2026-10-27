@@ -259,6 +259,11 @@ impl ViewCtx {
         self.globe.map(|c| c.horizon_dist as f32)
     }
 
+    /// 球体可见半球半角（度）；平面返回 `None`。
+    pub fn horizon_half_deg(&self) -> Option<f64> {
+        self.globe.map(|c| c.horizon_half_deg)
+    }
+
     /// 点是否在地平线以上（对齐 GQ `isAboveHorizon`）。
     pub fn is_above_horizon(&self, lon: f64, lat: f64) -> bool {
         match self.mode {

@@ -26,6 +26,8 @@ pub struct GlobeCamera {
     max_distance: f64,
     pub one_deg_px: f64,
     pub horizon_dist: f64,
+    /// 相机到地平线的地心角（度），用于球体图层裁剪范围。
+    pub horizon_half_deg: f64,
     width: f64,
     height: f64,
 }
@@ -60,6 +62,7 @@ impl GlobeCamera {
             max_distance: 0.0,
             one_deg_px: 1.0,
             horizon_dist: 1.0,
+            horizon_half_deg: 90.0,
             width: rect.width() as f64,
             height: rect.height() as f64,
         };
@@ -67,6 +70,7 @@ impl GlobeCamera {
         let center_to_camera =
             (camera_x * camera_x + camera_y * camera_y + camera_z * camera_z).sqrt();
         let max_angle = (EARTH_RADIUS_KM / center_to_camera.max(EARTH_RADIUS_KM + 1e-6)).acos();
+        cam.horizon_half_deg = max_angle.to_degrees().clamp(20.0, 95.0);
         let arc_km =
             2.0 * std::f64::consts::PI * EARTH_RADIUS_KM * (max_angle / (2.0 * std::f64::consts::PI));
         let (h_lon, h_lat) = move_on_globe(center_lon, center_lat, arc_km, 0.0);

@@ -501,7 +501,7 @@ impl RadarKind {
     }
 }
 
-/// GET 雷达 PNG 叠加帧（bounds 为地理包围，image 为解码前 PNG 字节）。
+/// GET 雷达叠加帧（bounds 为地理包围；像素为网络线程已解码的 RGBA8）。
 #[derive(Debug, Clone)]
 pub struct RadarFrame {
     pub kind: RadarKind,
@@ -512,7 +512,10 @@ pub struct RadarFrame {
     /// 北纬 / 东经
     pub ne_lat: f64,
     pub ne_lon: f64,
-    pub png: std::sync::Arc<Vec<u8>>,
+    pub width: u32,
+    pub height: u32,
+    /// 宽×高×4 的 RGBA8；UI 直接上传纹理，避免主线程再解 PNG。
+    pub rgba: std::sync::Arc<Vec<u8>>,
 }
 
 /// 降水区多边形（经度在前）。

@@ -85,6 +85,8 @@ pub struct FaultLines {
     paint_cache: Option<PaintCache>,
     rebuild_gen: u64,
     rebuild_pending: bool,
+    /// 正在后台重建的目标 paint_key（用于去重/作废）
+    rebuild_target_key: Option<u64>,
     rebuild_rx: Option<Receiver<RebuildJob>>,
 }
 
@@ -115,6 +117,7 @@ impl FaultLines {
         self.paint_cache = None;
         self.rebuild_gen = self.rebuild_gen.wrapping_add(1);
         self.rebuild_pending = false;
+        self.rebuild_target_key = None;
         self.rebuild_rx = None;
     }
 
@@ -137,10 +140,20 @@ impl FaultLines {
         self.paint_cache = None;
         self.rebuild_gen = self.rebuild_gen.wrapping_add(1);
         self.rebuild_pending = false;
+        self.rebuild_target_key = None;
         self.rebuild_rx = None;
     }
 
-    /// 静止帧可复用的断层 mesh。
+    /// 飞跃落地等场景：丢掉旧 mesh，迫使下一帧按新视角重建。
+    pub fn invalidate_paint_cache(&mut self) {
+        self.paint_cache = None;
+        self.rebuild_gen = self.rebuild_gen.wrapping_add(1);
+        self.rebuild_pending = false;
+        self.rebuild_target_key = None;
+        self.rebuild_rx = None;
+    }
+
+    /// 静止帧可复用的断层 mesh（含降质临时图；满质后台完成后由 poll 清 still_static）。
     pub fn still_mesh(&self) -> Option<Arc<Mesh>> {
         self.paint_cache.as_ref().map(|c| c.mesh.clone())
     }
@@ -167,6 +180,7 @@ impl FaultLines {
                 mesh,
             });
             self.rebuild_pending = false;
+            self.rebuild_target_key = None;
             got = true;
         }
         if got {
@@ -250,22 +264,31 @@ impl FaultLines {
             }
         }
 
-        // 静止且键变了：后台重建；有旧图先画着
-        if !interacting {
-            if let Some(c) = self.paint_cache.as_ref() {
-                ui.painter_at(view.rect)
-                    .add(egui::Shape::Mesh(c.mesh.clone()));
+        // 静止且键变了：已有同视角后台任务则先画临时 mesh；微移后台重建；大跳转丢旧图快建
+        if !interacting && self.paint_cache.is_some() {
+            if self.rebuild_pending && self.rebuild_target_key == Some(lookup_key) {
+                if let Some(c) = self.paint_cache.as_ref() {
+                    ui.painter_at(view.rect)
+                        .add(egui::Shape::Mesh(c.mesh.clone()));
+                }
+                return;
+            }
+            let big_jump = self.paint_cache.as_ref().is_some_and(|c| {
+                view_jump_too_far(c.build_lon, c.build_lat, c.build_zoom, view)
+            });
+            if !big_jump {
+                if let Some(c) = self.paint_cache.as_ref() {
+                    ui.painter_at(view.rect)
+                        .add(egui::Shape::Mesh(c.mesh.clone()));
+                }
                 self.spawn_rebuild(view, dark, quality, lookup_key, lookup_base);
                 return;
             }
+            self.paint_cache = None;
         }
 
-        // 无缓存：前台建一帧（交互中按档降质，极致仍保留更多细节）
-        let q = if interacting {
-            quality.while_interacting()
-        } else {
-            quality
-        };
+        // 无缓存：前台降质快建（落地/交互），再后台刷满质
+        let q = quality.while_interacting();
         let key = paint_key(view, dark, ppp, q);
         let base_key = paint_base_key(view, dark, ppp, q);
         let mesh = build_fault_mesh(&self.global, &self.china, view, dark, q);
@@ -299,7 +322,8 @@ impl FaultLines {
         key: u64,
         base_key: u64,
     ) {
-        if self.rebuild_pending {
+        // 已有同目标键任务则跳过；视角已变则作废旧任务并重排
+        if self.rebuild_pending && self.rebuild_target_key == Some(key) {
             return;
         }
         self.rebuild_gen = self.rebuild_gen.wrapping_add(1);
@@ -330,13 +354,29 @@ impl FaultLines {
             Ok(_) => {
                 self.rebuild_rx = Some(rx);
                 self.rebuild_pending = true;
+                self.rebuild_target_key = Some(key);
             }
             Err(e) => {
                 warn!(error = %e, "fault rebuild thread spawn failed");
-                // 保持 rebuild_pending=false，下一帧可重试
+                self.rebuild_pending = false;
+                self.rebuild_target_key = None;
             }
         }
     }
+}
+
+/// 相对缓存构建视角：平移/缩放是否大到不该继续复用旧 mesh。
+fn view_jump_too_far(build_lon: f64, build_lat: f64, build_zoom: f64, view: &ViewCtx) -> bool {
+    if (build_zoom - view.zoom).abs() > 0.35 {
+        return true;
+    }
+    let dlat = (build_lat - view.center_lat).abs();
+    let mut dlon = (build_lon - view.center_lon).abs();
+    if dlon > 180.0 {
+        dlon = 360.0 - dlon;
+    }
+    // 约 2.5° 或以上视为列表跳转/飞跃落地，需重裁
+    dlat > 2.5 || dlon > 2.5
 }
 
 impl FaultLods {
@@ -430,17 +470,21 @@ fn build_fault_mesh(
         PaintQuality::Normal => (0, 1, 1.0),
         PaintQuality::Extreme => (0, 1, 1.15),
     };
+    let globe = view.mode.is_globe();
     let zoom_budget = zoom_budget_scale(view.zoom);
+    // 球体可见半球更宽，略抬预算；交互档仍靠 quality 降载
+    let globe_mul = if globe { 1.55_f32 } else { 1.0 };
     let step = lod_step(view.zoom) + step_bias;
-    let stride_g = (seg_stride(view.zoom, false) * stride_mul).max(1);
-    let stride_c = (seg_stride(view.zoom, true) * stride_mul).max(1);
+    let stride_g = (seg_stride(view.zoom, false, globe) * stride_mul).max(1);
+    let stride_c = (seg_stride(view.zoom, true, globe) * stride_mul).max(1);
     let min_diag = min_diag_deg(view.zoom);
     let (global_rgba, china_rgba, width) = stroke_style(dark, view.zoom);
     let max_segs =
-        (((MAX_PAINT_SEGS as f32) * budget_scale * zoom_budget) as usize).max(80);
+        (((MAX_PAINT_SEGS as f32) * budget_scale * zoom_budget * globe_mul) as usize).max(80);
     let china_reserve =
-        (((CHINA_RESERVE as f32) * budget_scale * zoom_budget) as usize).max(40);
-    let vert_cap = (((MAX_MESH_VERTICES as f32) * budget_scale) as usize).max(2_000);
+        (((CHINA_RESERVE as f32) * budget_scale * zoom_budget * globe_mul) as usize).max(40);
+    let vert_cap =
+        (((MAX_MESH_VERTICES as f32) * budget_scale * globe_mul) as usize).max(2_000);
     // 为中国层预留顶点，避免全球层先画满导致 CAFD 整帧 0 顶点
     let china_vert_reserve = ((vert_cap as f32) * 0.28).round() as usize;
     let china_vert_reserve = china_vert_reserve.clamp(800, vert_cap.saturating_sub(400));
@@ -825,12 +869,22 @@ fn bbox_overlap(b: &[f32; 4], min_lon: f64, min_lat: f64, max_lon: f64, max_lat:
 
 fn view_lonlat_bounds(view: &ViewCtx) -> (f64, f64, f64, f64) {
     if view.mode.is_globe() {
-        let half = (60.0 / view.zoom.max(2.0)).clamp(18.0, 70.0);
+        // 用地平线半角（可见半球），旧公式 (60/zoom) 钳在 18° 导致球上断层加载范围过窄
+        let half = view
+            .horizon_half_deg()
+            .unwrap_or_else(|| {
+                let scroll = crate::globe::zoom_to_scroll(view.zoom);
+                let cam_r = (1.0 + scroll).max(1.05);
+                cam_r.recip().acos().to_degrees()
+            })
+            .clamp(28.0, 95.0)
+            * 1.08;
         let min_lat = (view.center_lat - half).max(-90.0);
         let max_lat = (view.center_lat + half).min(90.0);
-        let cos_lat = view.center_lat.to_radians().cos().abs().max(0.25);
-        let mut min_lon = view.center_lon - half / cos_lat;
-        let mut max_lon = view.center_lon + half / cos_lat;
+        let cos_lat = view.center_lat.to_radians().cos().abs().max(0.22);
+        let lon_half = (half / cos_lat).min(179.0);
+        let mut min_lon = view.center_lon - lon_half;
+        let mut max_lon = view.center_lon + lon_half;
         min_lon = projection::normalize_lon(min_lon);
         max_lon = projection::normalize_lon(max_lon);
         (min_lon, min_lat, max_lon, max_lat)
@@ -878,19 +932,19 @@ fn lod_step(zoom: f64) -> usize {
     }
 }
 
-fn seg_stride(zoom: f64, china: bool) -> usize {
+fn seg_stride(zoom: f64, china: bool, globe: bool) -> usize {
     let base = if zoom < 2.5 {
-        18
+        if globe { 10 } else { 18 }
     } else if zoom < 3.2 {
-        10
+        if globe { 6 } else { 10 }
     } else if zoom < 4.0 {
-        5
+        if globe { 3 } else { 5 }
     } else if zoom < 5.5 {
         2
     } else {
         1
     };
-    if china && zoom < 5.0 {
+    if china && zoom < 5.0 && !globe {
         (base * 2).min(24)
     } else {
         base
@@ -1077,7 +1131,7 @@ fn paint_line_mesh_globe(
     let half_km = view
         .px_to_km((width_px * 0.5).max(0.6))
         .unwrap_or(2.5)
-        .clamp(0.8, 18.0);
+        .clamp(0.6, 14.0);
     // 先按视距加密折线，再逐段贴面
     let densified = densify_fault_line_globe(line, view);
     for w in densified.windows(2) {
@@ -1090,27 +1144,48 @@ fn paint_line_mesh_globe(
         let (r0lon, r0lat) = crate::globe::move_on_globe(lon0, lat0, half_km, right_br);
         let (l1lon, l1lat) = crate::globe::move_on_globe(lon1, lat1, half_km, left_br);
         let (r1lon, r1lat) = crate::globe::move_on_globe(lon1, lat1, half_km, right_br);
-        let (Some(l0), Some(r0), Some(l1), Some(r1)) = (
-            view.project(l0lon, l0lat),
-            view.project(r0lon, r0lat),
-            view.project(l1lon, l1lat),
-            view.project(r1lon, r1lat),
-        ) else {
-            continue;
-        };
-        let i0 = mesh.vertices.len() as u32;
-        mesh.colored_vertex(l0, color);
-        mesh.colored_vertex(r0, color);
-        mesh.colored_vertex(l1, color);
-        mesh.colored_vertex(r1, color);
-        mesh.add_triangle(i0, i0 + 1, i0 + 2);
-        mesh.add_triangle(i0 + 1, i0 + 3, i0 + 2);
+        // 用放宽地平线的 project_fill，避免球缘断层被硬裁成“断在半空”
+        let corners = [
+            view.project_fill(l0lon, l0lat),
+            view.project_fill(r0lon, r0lat),
+            view.project_fill(l1lon, l1lat),
+            view.project_fill(r1lon, r1lat),
+        ];
+        match (corners[0], corners[1], corners[2], corners[3]) {
+            (Some(l0), Some(r0), Some(l1), Some(r1)) => {
+                let i0 = mesh.vertices.len() as u32;
+                mesh.colored_vertex(l0, color);
+                mesh.colored_vertex(r0, color);
+                mesh.colored_vertex(l1, color);
+                mesh.colored_vertex(r1, color);
+                mesh.add_triangle(i0, i0 + 1, i0 + 2);
+                mesh.add_triangle(i0 + 1, i0 + 3, i0 + 2);
+            }
+            _ => {
+                let vis: Vec<Pos2> = corners.into_iter().flatten().collect();
+                if vis.len() == 3 {
+                    let i0 = mesh.vertices.len() as u32;
+                    mesh.colored_vertex(vis[0], color);
+                    mesh.colored_vertex(vis[1], color);
+                    mesh.colored_vertex(vis[2], color);
+                    mesh.add_triangle(i0, i0 + 1, i0 + 2);
+                }
+            }
+        }
     }
 }
 
 fn densify_fault_line_globe(line: &[[f32; 2]], view: &ViewCtx) -> Vec<[f32; 2]> {
-    let mut out = Vec::with_capacity(line.len() * 2);
-    let step_km = view.px_to_km(14.0).unwrap_or(25.0).clamp(8.0, 80.0);
+    let mut out = Vec::with_capacity(line.len() * 3);
+    // 更密的大圆细分；高缩放限制每段上限，避免跳转落地同步镶嵌过慢
+    let step_km = view.px_to_km(8.0).unwrap_or(16.0).clamp(4.0, 36.0);
+    let max_div = if view.zoom >= 7.0 {
+        10
+    } else if view.zoom >= 5.5 {
+        18
+    } else {
+        36
+    };
     for w in line.windows(2) {
         let (lon0, lat0) = (w[0][0] as f64, w[0][1] as f64);
         let (lon1, lat1) = (w[1][0] as f64, w[1][1] as f64);
@@ -1118,8 +1193,8 @@ fn densify_fault_line_globe(line: &[[f32; 2]], view: &ViewCtx) -> Vec<[f32; 2]> 
             out.push(w[0]);
         }
         let dist = haversine_km(lon0, lat0, lon1, lat1);
-        if dist > step_km * 1.4 {
-            let n = ((dist / step_km).ceil() as usize).clamp(2, 24);
+        if dist > step_km * 1.25 {
+            let n = ((dist / step_km).ceil() as usize).clamp(2, max_div);
             let br = crate::globe::bearing_deg(lon0, lat0, lon1, lat1);
             for i in 1..n {
                 let d = dist * (i as f64) / (n as f64);
@@ -1237,6 +1312,20 @@ mod tests {
     fn china_bbox_skips_atlantic() {
         assert!(!bbox_overlap(&CHINA_BBOX, -40.0, 20.0, -10.0, 50.0));
         assert!(bbox_overlap(&CHINA_BBOX, 100.0, 20.0, 130.0, 40.0));
+    }
+
+    #[test]
+    fn globe_cull_covers_visible_hemisphere() {
+        let rect = Rect::from_min_size(Pos2::ZERO, egui::vec2(900.0, 800.0));
+        let view = ViewCtx::new(ProjectionMode::Globe, 110.0, 32.0, 4.5, rect);
+        let (min_lon, min_lat, max_lon, max_lat) = view_lonlat_bounds(&view);
+        let lat_span = max_lat - min_lat;
+        assert!(
+            lat_span > 80.0,
+            "globe cull lat span too narrow: {lat_span} ({min_lat}..{max_lat})"
+        );
+        // 日本附近应落入以中国为中心的球体可见范围
+        assert!(bbox_overlap(&[130.0, 30.0, 145.0, 45.0], min_lon, min_lat, max_lon, max_lat));
     }
 
     #[test]
