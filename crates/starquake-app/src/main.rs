@@ -548,9 +548,9 @@ fn build_native_options(
     force_soft: bool,
 ) -> eframe::NativeOptions {
     let device = perf.device.to_ascii_lowercase();
-    let profile = perf.profile.to_ascii_lowercase();
     let use_wgpu = force_soft || device == "cpu";
-    let vsync = profile != "extreme";
+    // 始终开 VSync：极致档仍用短间隔跟手，但避免关同步时短重绘把 GPU 打满
+    let vsync = true;
 
     if use_wgpu {
         // HardwareAcceleration::Off + Glow 在缺 WGL ES 扩展的机器上同样起不来；
@@ -563,11 +563,7 @@ fn build_native_options(
             eframe::wgpu::PowerPreference::HighPerformance
         };
         let wgpu_options = eframe::egui_wgpu::WgpuConfiguration {
-            present_mode: if vsync {
-                eframe::wgpu::PresentMode::AutoVsync
-            } else {
-                eframe::wgpu::PresentMode::AutoNoVsync
-            },
+            present_mode: eframe::wgpu::PresentMode::AutoVsync,
             wgpu_setup: eframe::egui_wgpu::WgpuSetup::CreateNew(setup),
             ..Default::default()
         };
@@ -843,9 +839,42 @@ impl eframe::App for StarQuakeApp {
                 self.bg_tiles_cleared = true;
             }
             // 后台仍要及时处理 net_rx / 音效；勿被 Idle 降到数秒一帧
+            starquake_map::set_repaint_floor_ms(ctx, 200);
             ctx.request_repaint_after(std::time::Duration::from_millis(200));
         } else {
             self.bg_tiles_cleared = false;
+            // 先定本帧重绘下限，避免地图/海啸等短间隔盖过空闲降频
+            let pointer_busy = ctx.input(|i| {
+                i.pointer.any_down()
+                    || i.pointer.button_clicked(egui::PointerButton::Primary)
+                    || i.pointer.button_released(egui::PointerButton::Primary)
+                    || i.pointer.button_clicked(egui::PointerButton::Secondary)
+                    || i.smooth_scroll_delta.length_sq() > 0.0
+            });
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let waves_busy = self.snap.show_wave_rings
+                && self.snap.eew_list.iter().any(|e| {
+                    eew_wave_live(e, now_ms, &self.snap.wave_spread_km, self.travel.as_ref())
+                });
+            let floor_need = if pointer_busy
+                || self.shell.map.wants_anim_repaint()
+                || self.splash.active()
+            {
+                RepaintNeed::Interactive
+            } else if waves_busy {
+                RepaintNeed::Waves
+            } else if self.shell.settings.open
+                || self.snap.countdown_s.is_some()
+                || self.shell.map.is_basemap_loading()
+            {
+                RepaintNeed::Soft
+            } else {
+                RepaintNeed::Idle
+            };
+            starquake_map::set_repaint_floor_ms(
+                ctx,
+                repaint_ms(&self.cfg.performance, floor_need),
+            );
         }
 
         self.tick_window_geometry(ctx);
@@ -1558,7 +1587,10 @@ impl eframe::App for StarQuakeApp {
             RepaintNeed::Interactive
         } else if waves_busy {
             RepaintNeed::Waves
-        } else if self.shell.settings.open || self.snap.countdown_s.is_some() {
+        } else if self.shell.settings.open
+            || self.snap.countdown_s.is_some()
+            || self.shell.map.is_basemap_loading()
+        {
             RepaintNeed::Soft
         } else {
             RepaintNeed::Idle
@@ -1869,7 +1901,7 @@ impl StarQuakeApp {
                         ui.add(egui::ProgressBar::new(0.0).animate(true));
                     }
                 });
-            ctx.request_repaint();
+            starquake_map::request_repaint_after_capped(ctx, 50);
             return;
         }
 

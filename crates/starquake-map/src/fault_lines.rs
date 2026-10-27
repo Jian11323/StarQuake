@@ -170,7 +170,7 @@ impl FaultLines {
             got = true;
         }
         if got {
-            ctx.request_repaint();
+            crate::request_repaint_after_capped(ctx, 33);
         }
         got
     }

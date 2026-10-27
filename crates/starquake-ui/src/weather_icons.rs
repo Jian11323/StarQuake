@@ -83,7 +83,8 @@ impl WeatherIconCache {
                     self.entries.insert(decoded.key, IconState::Failed);
                 }
             }
-            ctx.request_repaint_after(std::time::Duration::from_millis(40));
+            // 走地图同款下限，避免空闲时 40ms 抢跑
+            starquake_map::request_repaint_after_capped(ctx, 40);
         }
         self.spawn_jobs();
     }

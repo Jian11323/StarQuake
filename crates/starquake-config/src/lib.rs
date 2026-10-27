@@ -353,7 +353,6 @@ impl PerformanceConfig {
             return 400;
         }
         match self.profile_norm().as_str() {
-            "extreme" => 100,
             "eco" => 300,
             _ => 200,
         }

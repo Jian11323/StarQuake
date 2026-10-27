@@ -99,13 +99,15 @@ impl TsunamiCoast {
         if self.segs.is_empty() || areas.is_empty() {
             return;
         }
-        // 隐藏帧：整秒 % 5 == 0
+        // 隐藏帧：整秒 % 5 == 0；只预约到下一秒边界，勿每帧抢 200ms 盖过空闲降频
         let sec = now_ms / 1000;
+        let ms_into_sec = (now_ms.rem_euclid(1000)) as u64;
+        let until_next_sec = (1000 - ms_into_sec).max(50);
         if sec.rem_euclid(5) == 0 {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+            crate::request_repaint_after_capped(ui.ctx(), until_next_sec);
             return;
         }
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        crate::request_repaint_after_capped(ui.ctx(), until_next_sec.min(1000));
 
         let mut by_grade: Vec<(String, Color32)> = Vec::new();
         for a in areas {

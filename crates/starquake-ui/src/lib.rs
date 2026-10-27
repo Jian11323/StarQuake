@@ -230,8 +230,7 @@ impl MainShell {
 
         // 波圈动画按档位降频，避免 uncapped request_repaint 拉高 CPU
         if show_waves && !wave_owned.is_empty() {
-            let ms = cfg.performance.wave_repaint_ms();
-            ctx.request_repaint_after(std::time::Duration::from_millis(ms));
+            starquake_map::request_repaint_after_capped(ctx, cfg.performance.wave_repaint_ms());
         }
 
         // 侧栏：可拖宽关闭 / 竖屏底栏 / 可分离为独立 OS 窗口（对齐 eewcn QDock）
@@ -583,6 +582,11 @@ impl MainShell {
                     .iter()
                     .map(|ev| eew_marker_display_num(ev, snap, travel, &header_cards))
                     .collect();
+                // 设置打开且非地图选点：跳过全量地图镶嵌（遮罩挡住，刷了只烧 GPU）
+                let paint_map = !self.settings.open || self.settings.map_pick.is_some();
+                if !paint_map {
+                    let _ = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
+                } else {
                 map_ui = self.map.ui(
                     ui,
                     snap.active.as_ref(),
@@ -618,7 +622,9 @@ impl MainShell {
                     cfg.sources.map_wx.radar_opacity,
                     cfg.sources.map_wx.precip_opacity,
                 );
-                if cfg.ui.auto_zoom_waves
+                }
+                if paint_map
+                    && cfg.ui.auto_zoom_waves
                     && show_waves
                     && !self.map.is_flying()
                     && !self.map.user_camera_override
@@ -690,13 +696,15 @@ impl MainShell {
                             Some(ev.longitude),
                             Some(ev.latitude),
                         );
-                        ctx.request_repaint_after(std::time::Duration::from_millis(
+                        starquake_map::request_repaint_after_capped(
+                            ctx,
                             cfg.performance.wave_repaint_ms(),
-                        ));
+                        );
                     }
                 }
                 // 预警条/海啸/右上测站台风/图例/时钟：相对 1280x720 等比，上限 1.0
                 let panel_z = ui_z;
+                if paint_map {
                 draw_map_load_banner(ui, &p, self.map.load_state(), self.map.load_status());
                 if let Some(kind) = self.settings.map_pick {
                     draw_map_pick_banner(ui, &p, kind);
@@ -831,6 +839,7 @@ impl MainShell {
                     sun_lon,
                     panel_z,
                 );
+                } // paint_map HUD
 
                 // 侧栏关闭或已分离：地图右键菜单（内嵌侧栏打开时不挂，避免挡列表）
                 let allow_ctx = (!show_sidebar || sidebar_detached)

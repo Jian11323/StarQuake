@@ -626,7 +626,7 @@ impl SettingsSession {
                 self.auth_alert = Some((t("鉴权失败").into(), e));
             }
             Some(Err(mpsc::TryRecvError::Empty)) => {
-                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                starquake_map::request_repaint_after_capped(ctx, 50);
             }
             Some(Err(mpsc::TryRecvError::Disconnected)) => {
                 self.auth_rx = None;
@@ -666,7 +666,7 @@ impl SettingsSession {
                 self.save_note = Some(format!("{}{e}", t("IP 定位失败：")));
             }
             Some(Err(mpsc::TryRecvError::Empty)) => {
-                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                starquake_map::request_repaint_after_capped(ctx, 50);
             }
             Some(Err(mpsc::TryRecvError::Disconnected)) => {
                 self.ip_locate_rx = None;

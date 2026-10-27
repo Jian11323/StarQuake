@@ -151,7 +151,7 @@ impl TileCache {
                     self.entries.insert(decoded.id, TileState::Failed);
                 }
             }
-            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            crate::request_repaint_after_capped(ctx, 50);
         }
         self.spawn_jobs();
     }

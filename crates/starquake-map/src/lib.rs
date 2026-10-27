@@ -24,6 +24,23 @@ pub use projection::{
 pub use tile_cache::TileCache;
 pub use vector_basemap::{BasemapLoadState, BasemapMode, VectorBasemap, VectorStyle, OCEAN};
 
+fn repaint_floor_id() -> egui::Id {
+    egui::Id::new("starquake_repaint_floor_ms")
+}
+
+/// 本帧重绘下限（毫秒）。空闲时由应用层设为 1000+，避免地图内短间隔抢跑。
+pub fn set_repaint_floor_ms(ctx: &egui::Context, ms: u64) {
+    ctx.data_mut(|d| {
+        d.insert_temp(repaint_floor_id(), ms);
+    });
+}
+
+/// 预约重绘，但不会快于当前帧的 `set_repaint_floor_ms`。
+pub fn request_repaint_after_capped(ctx: &egui::Context, ms: u64) {
+    let floor = ctx.data(|d| d.get_temp::<u64>(repaint_floor_id()).unwrap_or(0));
+    ctx.request_repaint_after(std::time::Duration::from_millis(ms.max(floor).max(1)));
+}
+
 /// 绘制质量：随性能档位降低测站密度 / 矢量细度，减轻老 GPU/CPU。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PaintQuality {
@@ -402,6 +419,14 @@ impl MapViewport {
         self.vector.status_text()
     }
 
+    /// 底图仍在后台加载（空闲降频时应按软忙，允许较快收包刷新）。
+    pub fn is_basemap_loading(&self) -> bool {
+        matches!(
+            self.vector.load_state(),
+            BasemapLoadState::LoadingWorld | BasemapLoadState::LoadingRegional
+        )
+    }
+
     /// 与界面主题同步的海洋/缺瓦片底色。
     pub fn set_ocean_fill(&mut self, color: Color32) {
         self.ocean_fill = color;
@@ -452,12 +477,10 @@ impl MapViewport {
         precip_opacity: f32,
     ) -> MapUiResult {
         if self.vector.poll() {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(50));
+            request_repaint_after_capped(ui.ctx(), 50);
         }
         if self.faults.poll(ui.ctx()) {
-            ui.ctx()
-                .request_repaint_after(std::time::Duration::from_millis(16));
+            request_repaint_after_capped(ui.ctx(), 33);
         }
         self.markers.ensure(ui.ctx());
 
