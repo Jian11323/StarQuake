@@ -825,6 +825,9 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "暂无气象预警"), "暫無氣象預警");
         m.insert((Lang::Ja, "暂无气象预警"), "気象警報なし");
         m.insert((Lang::En, "暂无气象预警"), "No weather alerts");
+        m.insert((Lang::ZhTw, "窗口小于默认尺寸：已自动改为列表；放大到 1280×720 后恢复卡片。"), "視窗小於預設尺寸：已自動改為列表；放大到 1280×720 後恢復卡片。");
+        m.insert((Lang::Ja, "窗口小于默认尺寸：已自动改为列表；放大到 1280×720 后恢复卡片。"), "既定サイズ未満：リスト表示に切替。1280×720 以上でカード復帰。");
+        m.insert((Lang::En, "窗口小于默认尺寸：已自动改为列表；放大到 1280×720 后恢复卡片。"), "Below default size: switched to list; cards resume at 1280×720.");
         m.insert(
             (Lang::ZhTw, "启用气象源并登录 Jian 令牌后，中央台预警会出现在此列表。"),
             "啟用氣象源並登入 Jian 令牌後，中央台預警會出現在此列表。",

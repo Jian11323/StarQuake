@@ -677,7 +677,7 @@ ABOUT_BODY = (
     "fn draw_about(ui: &mut Ui) {\n"
     f'    section(ui, crate::APP_DISPLAY_NAME, "\\u{{24d8}}", |ui| {{\n'
     '        ui.label(\n'
-    '            RichText::new(format!("版本 {}", env!("CARGO_PKG_VERSION")))\n'
+    '            RichText::new(format!("版本 {}", crate::APP_VERSION_DISPLAY))\n'
     "                .size(14.0)\n"
     "                .color(chrome().text),\n"
     "        );\n"

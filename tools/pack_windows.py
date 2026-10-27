@@ -14,7 +14,12 @@ ROOT = TOOLS.parent
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from _pack_common import assert_brand_assets, copy_ignore_patterns, workspace_version  # noqa: E402
+from _pack_common import (  # noqa: E402
+    assert_brand_assets,
+    copy_ignore_patterns,
+    display_version,
+    pack_version_slug,
+)
 
 
 def log(msg: str) -> None:
@@ -49,11 +54,11 @@ def copy_tree(src: Path, dst: Path) -> None:
     )
 
 
-def write_usage(out: Path, ver: str) -> None:
+def write_usage(out: Path, ver_display: str) -> None:
     usage = f"""StarQuake 便携包
 ================
 
-版本：{ver}
+版本：{ver_display}
 双击 starquake.exe 即可运行（勿拆散 media / icon / geodata / config 相对位置）。
 启动时会显示启动界面，底图就绪后进入主界面。
 
@@ -71,8 +76,8 @@ def write_usage(out: Path, ver: str) -> None:
     (out / "使用说明.txt").write_bytes(usage.encode("utf-8-sig"))
 
 
-def zip_out(out: Path, ver: str) -> Path:
-    zip_path = ROOT / "dist" / f"StarQuake_{ver}_portable.zip"
+def zip_out(out: Path, ver_slug: str) -> Path:
+    zip_path = ROOT / "dist" / f"StarQuake_{ver_slug}_portable.zip"
     if zip_path.exists():
         zip_path.unlink()
     skip = {".DS_Store", "Thumbs.db"}
@@ -97,8 +102,9 @@ def zip_out(out: Path, ver: str) -> Path:
 
 
 def main() -> int:
-    ver = workspace_version(ROOT)
-    log(f"StarQuake {ver} portable pack")
+    ver_display = display_version(ROOT)
+    ver_slug = pack_version_slug(ROOT)
+    log(f"StarQuake {ver_display} portable pack")
     assert_brand_assets(ROOT)
 
     skip_build = "--skip-build" in sys.argv
@@ -142,8 +148,8 @@ def main() -> int:
 
     copy_tree(ROOT / "geodata", out / "geodata")
 
-    write_usage(out, ver)
-    zpath = zip_out(out, ver)
+    write_usage(out, ver_display)
+    zpath = zip_out(out, ver_slug)
     log(f"DIR  {out}")
     log(f"ZIP  {zpath}")
     log(f"RUN  {out / 'starquake.exe'}")

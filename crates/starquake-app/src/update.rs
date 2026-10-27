@@ -135,9 +135,17 @@ struct ManifestAsset {
     sha256: String,
 }
 
-/// 解析 `v2.0.1` / `2.0.1` / `StarQuake-2.0.1` → (major, minor, patch)。
+/// 解析 `v2.0.1` / `2.0.1` / `Beta 2.3.4` / `2.3.2-beta` → (major, minor, patch)。
 pub fn parse_semver(raw: &str) -> Option<(u64, u64, u64)> {
-    let s = raw.trim().trim_start_matches('v').trim_start_matches('V');
+    let mut s = raw.trim().trim_start_matches('v').trim_start_matches('V');
+    // 通道前缀：`Beta 2.3.4` / `beta 2.3.4`
+    if let Some(rest) = s
+        .strip_prefix("Beta")
+        .or_else(|| s.strip_prefix("beta"))
+        .or_else(|| s.strip_prefix("BETA"))
+    {
+        s = rest.trim_start();
+    }
     // 预发布后缀截断：`2.3.2-beta` / `2.3.2-beta.1` → `2.3.2`（勿用 rsplit 误吃成 `1`）
     let s = s.split(['-', '+', ' ']).next().unwrap_or(s);
     let mut parts = s.split('.');
@@ -1100,8 +1108,12 @@ mod tests {
         assert!(!is_newer("1.9.9", "2.0.0"));
         assert_eq!(parse_semver("2.3.2-beta"), Some((2, 3, 2)));
         assert_eq!(parse_semver("2.3.2-beta.1"), Some((2, 3, 2)));
+        assert_eq!(parse_semver("Beta 2.3.4"), Some((2, 3, 4)));
+        assert_eq!(parse_semver("beta 2.3.4"), Some((2, 3, 4)));
         assert!(is_newer("2.3.2-beta", "2.3.1"));
         assert!(is_newer("2.3.3-beta", "2.3.2-beta"));
+        assert!(is_newer("Beta 2.3.4", "2.3.3-beta"));
+        assert!(!is_newer("Beta 2.3.4", "Beta 2.3.4"));
     }
 
     #[test]

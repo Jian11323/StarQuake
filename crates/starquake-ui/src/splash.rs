@@ -166,7 +166,7 @@ pub fn draw_splash(
             painter.text(
                 c + Vec2::new(0.0, 56.0),
                 Align2::CENTER_CENTER,
-                crate::i18n::t("版本 {}").replace("{}", env!("CARGO_PKG_VERSION")),
+                crate::i18n::t("版本 {}").replace("{}", crate::APP_VERSION_DISPLAY),
                 FontId::proportional(14.0),
                 with_alpha(p.text_muted, opacity),
             );

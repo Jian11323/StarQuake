@@ -3,7 +3,10 @@ Unicode true
 RequestExecutionLevel admin
 
 !ifndef VERSION
-  !define VERSION "1.4.3"
+  !define VERSION "Beta_2.3.4"
+!endif
+!ifndef DISPLAY_VERSION
+  !define DISPLAY_VERSION "Beta 2.3.4"
 !endif
 !ifndef DIST_DIR
   !define DIST_DIR "..\dist\StarQuake"
@@ -15,7 +18,7 @@ RequestExecutionLevel admin
   !define SPLASH_BMP "${DIST_DIR}\icon\brand\splash_installer.bmp"
 !endif
 
-Name "StarQuake"
+Name "StarQuake ${DISPLAY_VERSION}"
 OutFile "${OUT_FILE}"
 InstallDir "$PROGRAMFILES32\StarQuake"
 InstallDirRegKey HKLM "Software\StarQuake" "InstallDir"
@@ -48,7 +51,7 @@ Section "StarQuake" SecMain
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\StarQuake" \
     "DisplayName" "StarQuake"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\StarQuake" \
-    "DisplayVersion" "${VERSION}"
+    "DisplayVersion" "${DISPLAY_VERSION}"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\StarQuake" \
     "Publisher" "Jian11323"
   WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\StarQuake" \

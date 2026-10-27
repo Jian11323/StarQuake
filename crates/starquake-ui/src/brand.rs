@@ -5,6 +5,9 @@ use egui::{ColorImage, Context, IconData, TextureHandle, TextureOptions};
 /// 面向用户的软件名称。
 pub const APP_DISPLAY_NAME: &str = "StarQuake";
 
+/// 面向用户的版本号（`Beta 2.3.4`；Cargo 包版本为数字 `2.3.4`）。
+pub const APP_VERSION_DISPLAY: &str = concat!("Beta ", env!("CARGO_PKG_VERSION"));
+
 const APP_PNG: &[u8] = include_bytes!("../../../icon/brand/app.png");
 
 /// 主窗口 / 设置窗的任务栏与标题栏图标。

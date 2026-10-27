@@ -9,7 +9,7 @@ mod theme;
 mod weather_icons;
 mod weather_panel;
 
-pub use brand::{app_icon_data, logo_texture, APP_DISPLAY_NAME};
+pub use brand::{app_icon_data, logo_texture, APP_DISPLAY_NAME, APP_VERSION_DISPLAY};
 pub use i18n::{set_lang_from_config, Lang};
 pub use splash::{draw_splash, SplashGate};
 
@@ -26,7 +26,7 @@ use starquake_core::{
 use weather_icons::WeatherIconCache;
 use starquake_core::palette::{cn_intensity_rgb, jma_shindo_rgb};
 use starquake_map::{
-    zoom_to_fit_radius_km, BasemapLoadState, BasemapMode, MapUiResult, MapViewport,
+    radius_km_screen_px, zoom_to_fit_radius_for_mode, zoom_to_fit_radius_km, BasemapLoadState, BasemapMode, MapUiResult, MapViewport,
     ProjectionMode, TyphoonHoverHit, VectorStyle, OCEAN,
 };
 use starquake_travel::{max_s_wave_spread_km, s_wave_still_spreading_to, TravelEngine, Wave};
@@ -237,11 +237,14 @@ impl MainShell {
         // 侧栏：可拖宽关闭 / 竖屏底栏 / 可分离为独立 OS 窗口（对齐 eewcn QDock）
         let screen_w = ctx.screen_rect().width();
         let screen_h = ctx.screen_rect().height();
+        // 相对默认窗口 1280x720 等比缩放；上限 1.0（全屏不放大）
+        let ui_z = hud_window_zoom(screen_w, screen_h);
         const MAP_MIN_W: f32 = 360.0;
         const MAP_MIN_H: f32 = 240.0;
-        /// 对齐 eewcn `resizeDocks(..., 260)`；DPI 由 egui pixels_per_point 处理
-        const SIDE_IDEAL: f32 = 260.0;
-        const SIDE_MIN: f32 = 176.0;
+        // 对齐 eewcn dock；略宽于 260，给烈度块 + 右缘 3–5mm 留空
+        const SIDE_IDEAL: f32 = 280.0;
+        let side_ideal = (SIDE_IDEAL * ui_z).clamp(168.0, 280.0);
+        const SIDE_MIN: f32 = 160.0;
         /// 允许拖到比内容更窄，便于继续向右/向下拖到关闭
         const SIDE_DRAG_MIN: f32 = 40.0;
         /// 目标宽度（或指针意图宽度）低于此则关闭
@@ -251,13 +254,13 @@ impl MainShell {
         let sidebar_w = if screen_w < MAP_MIN_W + SIDE_MIN {
             (screen_w * 0.36).clamp(140.0, SIDE_MIN)
         } else {
-            let cap = (screen_w - MAP_MIN_W).min(SIDE_IDEAL);
-            cap.min(screen_w * 0.27).max(SIDE_MIN)
+            let cap = (screen_w - MAP_MIN_W).min(side_ideal);
+            cap.min(screen_w * 0.28).max(SIDE_MIN)
         };
         let sidebar_h = if screen_h < MAP_MIN_H + SIDE_MIN {
             (screen_h * 0.36).clamp(140.0, SIDE_MIN)
         } else {
-            let cap = (screen_h - MAP_MIN_H).min(SIDE_IDEAL + 40.0);
+            let cap = (screen_h - MAP_MIN_H).min(side_ideal + 40.0);
             cap.min(screen_h * 0.34).max(SIDE_MIN)
         };
         let mut side_action = None;
@@ -310,6 +313,7 @@ impl MainShell {
                             show_volcanoes,
                             source_enabled,
                             true,
+                            ui_z,
                             &mut cfg.ui.weather_display_mode,
                             &mut cfg.ui.weather_location_filter,
                             &mut wx_dirty,
@@ -388,7 +392,7 @@ impl MainShell {
             let panel_resp = egui::TopBottomPanel::bottom(sidebar_id)
                 .default_height(sidebar_h)
                 .min_height(SIDE_DRAG_MIN)
-                .max_height((screen_h - MAP_MIN_H).clamp(SIDE_MIN, SIDE_IDEAL + 120.0))
+                .max_height((screen_h - MAP_MIN_H).clamp(SIDE_MIN, side_ideal + 120.0))
                 .resizable(true)
                 .frame(Frame::NONE.fill(p.sidebar_bg))
                 .show(ctx, |ui| {
@@ -402,6 +406,7 @@ impl MainShell {
                         show_volcanoes,
                         source_enabled,
                         false,
+                        ui_z,
                         &mut cfg.ui.weather_display_mode,
                         &mut cfg.ui.weather_location_filter,
                         &mut wx_dirty,
@@ -427,10 +432,48 @@ impl MainShell {
                 side_action = Some(SideAction::CloseSidebar);
             }
         } else if show_sidebar {
+            // eewcn resizeDocks(260)：目标宽固定约 260（随 ui_z 收）。
+            // egui 会把内容撑开的 rect 写回 PanelState，若不每帧纠回，侧栏会越撑越宽、列表永不换行。
+            let side_max = (screen_w - MAP_MIN_W)
+                .min(side_ideal + 80.0)
+                .max(SIDE_MIN);
+            let target = sidebar_w.clamp(SIDE_MIN, side_max);
+            let resize_id_pre = sidebar_id.with("__resize");
+            let dragging_side = ctx
+                .read_response(resize_id_pre)
+                .map(|r| r.dragged())
+                .unwrap_or(false);
+            if let Some(mut st) = egui::containers::panel::PanelState::load(ctx, sidebar_id) {
+                let cur = st.rect.width();
+                let w = if dragging_side {
+                    cur.clamp(SIDE_DRAG_MIN, side_max)
+                } else {
+                    // 非拖拽：钉在 target（对齐 eewcn 固定 dock 宽）
+                    target
+                };
+                if (cur - w).abs() > 0.5 {
+                    let right = st.rect.right();
+                    st.rect.set_left(right - w);
+                    ctx.data_mut(|d| d.insert_persisted(sidebar_id, st));
+                }
+            } else {
+                // 首帧尚无状态：预写入，避免 default_width 被首帧内容撑破
+                let screen = ctx.screen_rect();
+                let rect = egui::Rect::from_min_max(
+                    egui::pos2(screen.right() - target, screen.top()),
+                    egui::pos2(screen.right(), screen.bottom()),
+                );
+                ctx.data_mut(|d| {
+                    d.insert_persisted(
+                        sidebar_id,
+                        egui::containers::panel::PanelState { rect },
+                    )
+                });
+            }
             let panel_resp = egui::SidePanel::right(sidebar_id)
-                .default_width(sidebar_w)
+                .default_width(target)
                 .min_width(SIDE_DRAG_MIN)
-                .max_width((screen_w - MAP_MIN_W).clamp(SIDE_MIN, SIDE_IDEAL + 72.0))
+                .max_width(side_max)
                 .resizable(true)
                 .frame(Frame::NONE.fill(p.sidebar_bg))
                 .show(ctx, |ui| {
@@ -444,6 +487,7 @@ impl MainShell {
                         show_volcanoes,
                         source_enabled,
                         false,
+                        ui_z,
                         &mut cfg.ui.weather_display_mode,
                         &mut cfg.ui.weather_location_filter,
                         &mut wx_dirty,
@@ -600,20 +644,48 @@ impl MainShell {
                         let r = s_km
                             .min(max_s_wave_spread_km(ev.magnitude))
                             .max(8.0);
-                        // 目标：S 半径约占视口短边 46%（直径≈92%，留边不裁切）
-                        // 区间 [7, 11]：落地 Z11 起只缩小，地板 z7 禁止砸到半球远景
-                        let z = zoom_to_fit_radius_km(
+                        // 对齐 eewcn `fitViewportToEEWCircle`：
+                        // 仅当 S 波在屏幕上贴近/超出视口短边时才缩小跟随；未贴边禁止缩小。
+                        // `_calcSingleEEWZoom` 用短边×0.7 估直径；我们贴边跟随用短边×0.48 半径
+                        // （直径≈短边，与「贴上下边」观感一致）。球体必须投影量测。
+                        let edge_fill = 0.48_f32;
+                        let min_side = map_rect.width().min(map_rect.height()) as f64;
+                        let edge_px = min_side * edge_fill as f64;
+                        let cur_s_px = radius_km_screen_px(
+                            self.map.center_lon,
+                            self.map.center_lat,
+                            self.map.zoom,
+                            ev.longitude,
                             ev.latitude,
                             r,
-                            map_rect.width().min(map_rect.height()),
-                            0.46,
+                            map_rect.width(),
+                            map_rect.height(),
+                            self.map.projection_mode,
+                        );
+                        let fit_z = zoom_to_fit_radius_for_mode(
+                            ev.longitude,
+                            ev.latitude,
+                            r,
+                            map_rect.width(),
+                            map_rect.height(),
+                            edge_fill,
+                            self.map.projection_mode,
                         )
-                        .clamp(7.0, 11.0);
+                        .clamp(5.0, 12.0);
+                        // 未贴边：保持当前 zoom（不缩小）；仅当视角过远（fit 更高）才拉近
+                        let z = if cur_s_px < edge_px * 0.92 {
+                            if fit_z > self.map.zoom + 0.05 {
+                                fit_z
+                            } else {
+                                self.map.zoom
+                            }
+                        } else {
+                            fit_z
+                        };
                         let dt = ctx.input(|i| i.unstable_dt as f64).clamp(1e-4, 0.25);
-                        // ~0.28 级/秒：Z11→Z7 约 14 秒，缓慢线性
                         self.map.apply_linear_zoom_out(
                             z,
-                            0.28,
+                            0.18,
                             dt,
                             Some(ev.longitude),
                             Some(ev.latitude),
@@ -623,9 +695,8 @@ impl MainShell {
                         ));
                     }
                 }
-                // 预警条/海啸/右上测站与台风：小视口缩小，大屏不放大（RhythmQuake 式）
-                // 图例与右下时钟保持设计稿原尺寸
-                let panel_z = eew_panel_zoom(map_rect.width(), map_rect.height());
+                // 预警条/海啸/右上测站台风/图例/时钟：相对 1280x720 等比，上限 1.0
+                let panel_z = ui_z;
                 draw_map_load_banner(ui, &p, self.map.load_state(), self.map.load_status());
                 if let Some(kind) = self.settings.map_pick {
                     draw_map_pick_banner(ui, &p, kind);
@@ -680,7 +751,10 @@ impl MainShell {
                 }
                 // 气象悬浮卡片：卡片模式 + 设置开启时显示（不再在地图打测站式色点）
                 if cfg.ui.show_weather
-                    && weather_panel::weather_is_card_mode(&cfg.ui.weather_display_mode)
+                    && weather_panel::weather_effective_card_mode(
+                        &cfg.ui.weather_display_mode,
+                        panel_z,
+                    )
                 {
                     let stack_right = weather_panel::map_overlay_stack_right(
                         map_rect,
@@ -740,7 +814,7 @@ impl MainShell {
                     }
                 }
                 if cfg.ui.show_legend {
-                    draw_legend_bar(ui, &p, 1.0);
+                    draw_legend_bar(ui, &p, panel_z);
                 }
                 // 本地未设经纬度时，用当前地图中心估算日出日落
                 let (sun_lat, sun_lon) = match (self.local_lat, self.local_lon) {
@@ -755,7 +829,7 @@ impl MainShell {
                     map_rect,
                     sun_lat,
                     sun_lon,
-                    1.0,
+                    panel_z,
                 );
 
                 // 侧栏关闭或已分离：地图右键菜单（内嵌侧栏打开时不挂，避免挡列表）
@@ -1135,26 +1209,26 @@ fn intensity_chip(
     (k, lv, rgb(color_for(k, lv)), label)
 }
 
-/// 绘制烈度/震度图标；无贴图时回退色块+文案。
-fn paint_intensity(
-    ui: &mut Ui,
+/// 在给定矩形内绘制烈度/震度图标（不 allocate，避免撑破父级宽度）。
+fn paint_intensity_at(
+    painter: &egui::Painter,
+    rect: egui::Rect,
     icons: &IntensityIcons,
     kind: IntensityKind,
     level: u8,
     text: &str,
     scale: &str,
-    size: f32,
     instrumental: bool,
 ) {
     let (k, lv, col, label) = intensity_chip(kind, level, text, scale);
-    let (resp, painter) = ui.allocate_painter(Vec2::splat(size), Sense::hover());
+    let size = rect.width().min(rect.height());
     // 中国烈度 0 = 无数据：显示「—」，勿用烈度1图标冒充
     let unknown_cn = k == IntensityKind::CnIntensity && lv == 0;
     if !unknown_cn {
         if let Some(tex) = icons.get_ex(k, lv, instrumental) {
             painter.image(
                 tex.id(),
-                resp.rect,
+                rect,
                 egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                 Color32::WHITE,
             );
@@ -1171,9 +1245,10 @@ fn paint_intensity(
     } else {
         col
     };
-    painter.rect_filled(resp.rect, 4.0, bg);
+    let corner = (size * 0.10).clamp(2.0, 6.0);
+    painter.rect_filled(rect, corner, bg);
     painter.text(
-        resp.rect.center(),
+        rect.center(),
         egui::Align2::CENTER_CENTER,
         &show,
         FontId::proportional(if show.chars().count() > 2 {
@@ -1186,6 +1261,30 @@ fn paint_intensity(
         } else {
             Color32::BLACK
         },
+    );
+}
+
+/// 绘制烈度/震度图标；无贴图时回退色块+文案。
+fn paint_intensity(
+    ui: &mut Ui,
+    icons: &IntensityIcons,
+    kind: IntensityKind,
+    level: u8,
+    text: &str,
+    scale: &str,
+    size: f32,
+    instrumental: bool,
+) {
+    let (resp, painter) = ui.allocate_painter(Vec2::splat(size), Sense::hover());
+    paint_intensity_at(
+        &painter,
+        resp.rect,
+        icons,
+        kind,
+        level,
+        text,
+        scale,
+        instrumental,
     );
 }
 
@@ -1324,26 +1423,21 @@ fn header_slot_peers<'a>(
     dedupe_same_eew_events(&raw)
 }
 
-/// 地图 HUD 缩放：参考 RhythmQuake `UiScale.factor`——相对设计稿**只缩不放**。
-/// （eewcn `getWindowZoom` 在大屏可到 2×，会把测站/台风卡撑爆并挤出视口。）
-fn hud_window_zoom(map_w: f32, map_h: f32) -> f32 {
-    (((map_w / 640.0) * (map_h / 480.0)).sqrt()).clamp(0.75, 1.0)
-}
-
-/// 预警条 / 海啸 / 右上测站与台风：同只缩不放。
-fn eew_panel_zoom(map_w: f32, map_h: f32) -> f32 {
-    hud_window_zoom(map_w, map_h)
-}
-
-/// 侧栏内容缩放：对齐 eewcn——**不按宽度改字号**。
-/// eewcn 用 `ListHistoryWidget::ResizeItems` + `ExpandHeight` 按视口宽重排行高；
-/// 本侧用固定字号 + 地名换行 / 烈度块先占位实现同等效果。
-fn sidebar_content_zoom(_width: f32) -> f32 {
-    1.0
+/// 主窗口 UI 缩放：相对默认 **1280×720** 等比（几何平均）。
+/// 上限 1.0（全屏/更大分辨率不放大，避免测站/台风卡撑爆）；下限约 0.5（640×480）。
+fn hud_window_zoom(win_w: f32, win_h: f32) -> f32 {
+    const DESIGN_W: f32 = 1280.0;
+    const DESIGN_H: f32 = 720.0;
+    (((win_w / DESIGN_W) * (win_h / DESIGN_H)).sqrt()).clamp(0.50, 1.0)
 }
 
 fn margin_xy(x: f32, y: f32) -> Margin {
     Margin::symmetric(x.round().clamp(0.0, 127.0) as i8, y.round().clamp(0.0, 127.0) as i8)
+}
+
+/// 地图浮层相对窗口/侧栏内缘约 3–5mm（96dpi 下约 12–19px）。
+fn overlay_edge_margin(zoom: f32) -> f32 {
+    (16.0 * zoom).clamp(12.0, 22.0)
 }
 
 /// 左上角预警条总高度（海啸条避让）。
@@ -1388,14 +1482,22 @@ fn draw_event_header(
         .map(|ev| snap.active.as_ref().is_some_and(|a| same_eew_event(a, ev)))
         .collect();
 
-    let left_x = 12.0 * zoom;
+    // 窄地图时整体缩小，避免烈度块/正文被地图右缘裁切
+    let edge = overlay_edge_margin(zoom);
+    let map_w = ui.max_rect().width();
+    let fit = ((map_w - edge * 2.0) / 360.0).clamp(0.55, 1.0);
+    let zoom = zoom * fit;
+    let left_x = edge;
     let left_w = 340.0 * zoom;
     let row_gap = 6.0 * zoom;
     let top_y = OVERLAY_TOP_Y * zoom;
     let pos = ui.max_rect().left_top() + Vec2::new(left_x, top_y);
     let rect = egui::Rect::from_min_size(
         pos,
-        Vec2::new(left_w + 24.0 * zoom, ui.max_rect().height().max(120.0)),
+        Vec2::new(
+            (left_w + 24.0 * zoom).min(map_w - edge),
+            ui.max_rect().height().max(120.0),
+        ),
     );
     let mut cycle_to: Option<EewReport> = None;
     overlay_child(ui, "event_header", rect, |ui| {
@@ -1510,7 +1612,7 @@ fn draw_event_header(
         });
     });
     if let Some(next) = cycle_to {
-        let fly = (next.longitude, next.latitude, 11.0);
+        let fly = (next.longitude, next.latitude, 12.0);
         snap.active = Some(next);
         snap.tab = SidebarTab::Eew;
         snap.overlay_mode = OverlayMode::Wave;
@@ -1588,6 +1690,11 @@ fn draw_tsunami_banner(
             Color32::from_rgb(0xD1, 0xD5, 0xDB),
         ),
     };
+    // 与预警条同一套窄地图缩放，避免错位叠压
+    let edge = overlay_edge_margin(zoom);
+    let map_w = ui.max_rect().width();
+    let fit = ((map_w - edge * 2.0) / 360.0).clamp(0.55, 1.0);
+    let zoom = zoom * fit;
     // 有预警信息头时下移（按堆叠条数）；无预警时贴到左上角
     let top_y = {
         let h = eew_header_stack_height(snap, travel, zoom);
@@ -1597,10 +1704,13 @@ fn draw_tsunami_banner(
             OVERLAY_TOP_Y * zoom
         }
     };
-    let left_x = 12.0 * zoom;
+    let left_x = edge;
     let left_w = 340.0 * zoom;
     let pos = ui.max_rect().left_top() + Vec2::new(left_x, top_y);
-    let rect = egui::Rect::from_min_size(pos, Vec2::new(left_w + 24.0 * zoom, 220.0 * zoom));
+    let rect = egui::Rect::from_min_size(
+        pos,
+        Vec2::new((left_w + 24.0 * zoom).min(map_w - edge), 220.0 * zoom),
+    );
     overlay_child(ui, "tsunami_banner", rect, |ui| {
             Frame::NONE
                 .fill(fill)
@@ -1751,13 +1861,17 @@ fn draw_typhoon_detail_below_stations(
     ];
 
     // 与右上三测站卡片同宽对齐，并与卡片底边留足间距，避免贴地图
+    let edge = overlay_edge_margin(zoom);
+    let map_w = ui.max_rect().width();
+    let fit = ((map_w - edge * 2.0) / 260.0).clamp(0.55, 1.0);
+    let zoom = zoom * fit;
     let card_w = 240.0 * zoom; // 76*3 + 6*2
     let pad = 8.0 * zoom;
     let line_h = 16.0 * zoom;
     let header_h = 26.0 * zoom;
     let body_h = pad + line_h * lines.len() as f32 + 4.0 * zoom;
     let total_h = header_h + 2.0 * zoom + body_h;
-    let right = ui.max_rect().right() - 12.0 * zoom;
+    let right = ui.max_rect().right() - edge;
     let origin = egui::pos2(right - card_w, station_bottom_y + 14.0 * zoom);
     let rect = egui::Rect::from_min_size(origin, Vec2::new(card_w, total_h));
     let (r, g, b) = starquake_core::typhoon_color_rgb(&hit.strong, hit.power);
@@ -1944,13 +2058,18 @@ fn draw_realtime_intensity_card(
         cards.push(("all", "NIED", max_inst, false, ts));
     }
 
+    let edge = overlay_edge_margin(zoom);
+    let map_w = ui.max_rect().width();
+    // 三卡总宽约 240；地图过窄时同步缩小，避免贴右侧被裁
+    let fit = ((map_w - edge * 2.0) / 260.0).clamp(0.55, 1.0);
+    let zoom = zoom * fit;
     let card_w = 76.0 * zoom;
     let card_h = 88.0 * zoom;
     let gap = 6.0 * zoom;
     let now_ms = chrono::Utc::now().timestamp_millis();
     const STALE_MS: i64 = 8_000;
     let total_w = card_w * cards.len() as f32 + gap * (cards.len().saturating_sub(1) as f32);
-    let top_right = ui.max_rect().right_top() + Vec2::new(-12.0 * zoom, OVERLAY_TOP_Y * zoom);
+    let top_right = ui.max_rect().right_top() + Vec2::new(-edge, OVERLAY_TOP_Y * zoom);
     let rect = egui::Rect::from_min_size(
         egui::pos2(top_right.x - total_w.max(72.0 * zoom), top_right.y),
         Vec2::new(total_w.max(72.0 * zoom), card_h),
@@ -2450,66 +2569,34 @@ fn draw_sidebar(
     show_volcano_icons: bool,
     source_enabled: [bool; 5],
     detached: bool,
+    ui_zoom: f32,
     weather_display_mode: &mut String,
     weather_location_filter: &mut String,
     weather_cfg_dirty: &mut bool,
 ) -> Option<SideAction> {
     let mut clicked = None;
-    // eewcn 侧栏：固定字号；宽度变化只影响换行/行高，不缩放 UI
-    let z = sidebar_content_zoom(ui.available_width());
-    ui.set_min_width(ui.available_width());
+    // 随主窗等比缩放；分离浮窗保持接近设计稿字号，避免过窄窗把字压没
+    let z = if detached {
+        ui_zoom.clamp(0.85, 1.0)
+    } else {
+        ui_zoom
+    };
+    // 侧栏外边距；烈度块与窗边的 3–5mm 主要在 list_row 右 pad 保证
+    let pad = 10.0 * z;
     Frame::NONE
         .fill(p.sidebar_bg)
-        .inner_margin(Margin::symmetric(10, 9))
+        .inner_margin(margin_xy(pad, 9.0 * z))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let title_tip = if detached {
-                    crate::i18n::t("双击标题嵌回；或拖近主窗口右侧松手；也可点「嵌回」")
-                } else {
-                    crate::i18n::t("拖动标题可分离为独立窗口")
-                };
-                let title_resp = ui
-                    .add(
-                        egui::Label::new(
-                            RichText::new(crate::i18n::t("地震情报实况"))
-                                .color(p.text)
-                                .strong()
-                                .size(15.5 * z),
-                        )
-                        .sense(Sense::click_and_drag()),
-                    )
-                    .on_hover_text(title_tip)
-                    .on_hover_cursor(if detached {
-                        egui::CursorIcon::PointingHand
+            // 先占右侧按钮再放标题并截断，保证与「设置」同一行、垂直居中
+            ui.allocate_ui_with_layout(
+                Vec2::new(ui.available_width(), 28.0 * z),
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| {
+                    let title_tip = if detached {
+                        crate::i18n::t("双击标题嵌回；或拖近主窗口右侧松手；也可点「嵌回」")
                     } else {
-                        egui::CursorIcon::Grab
-                    });
-                let drag_id = egui::Id::new("sidebar_title_undock_drag");
-                if detached {
-                    if title_resp.double_clicked() {
-                        clicked = Some(SideAction::AttachSidebar);
-                    }
-                } else if title_resp.dragged() {
-                    let delta = title_resp.drag_delta();
-                    let should_detach = ui.ctx().data_mut(|d| {
-                        let acc = d.get_temp_mut_or_default::<Vec2>(drag_id);
-                        *acc += delta;
-                        if acc.length() >= 40.0 {
-                            *acc = Vec2::ZERO;
-                            true
-                        } else {
-                            false
-                        }
-                    });
-                    if should_detach {
-                        clicked = Some(SideAction::DetachSidebar);
-                    }
-                } else if title_resp.drag_stopped() {
-                    ui.ctx().data_mut(|d| {
-                        d.insert_temp(drag_id, Vec2::ZERO);
-                    });
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        crate::i18n::t("拖动标题可分离为独立窗口")
+                    };
                     if detached {
                         // 分离态：关窗 = 嵌回；额外给显式「嵌回」按钮
                         if ui
@@ -2569,11 +2656,57 @@ fn draw_sidebar(
                     {
                         clicked = Some(SideAction::Settings);
                     }
-                });
-            });
+                    let title_resp = ui
+                        .add(
+                            egui::Label::new(
+                                RichText::new(crate::i18n::t("StarQuake地震实时监看"))
+                                    .color(p.text)
+                                    .strong()
+                                    .size(15.5 * z),
+                            )
+                            .truncate()
+                            .sense(Sense::click_and_drag()),
+                        )
+                        .on_hover_text(title_tip)
+                        .on_hover_cursor(if detached {
+                            egui::CursorIcon::PointingHand
+                        } else {
+                            egui::CursorIcon::Grab
+                        });
+                    let drag_id = egui::Id::new("sidebar_title_undock_drag");
+                    if detached {
+                        if title_resp.double_clicked() {
+                            clicked = Some(SideAction::AttachSidebar);
+                        }
+                    } else if title_resp.dragged() {
+                        let delta = title_resp.drag_delta();
+                        let should_detach = ui.ctx().data_mut(|d| {
+                            let acc = d.get_temp_mut_or_default::<Vec2>(drag_id);
+                            *acc += delta;
+                            if acc.length() >= 40.0 {
+                                *acc = Vec2::ZERO;
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                        if should_detach {
+                            clicked = Some(SideAction::DetachSidebar);
+                        }
+                    } else if title_resp.drag_stopped() {
+                        ui.ctx().data_mut(|d| {
+                            d.insert_temp(drag_id, Vec2::ZERO);
+                        });
+                    }
+                },
+            );
 
             ui.add_space(6.0 * z);
-            ui.horizontal(|ui| {
+            // 数据源状态：小圆点指示灯（恢复原先尺寸）
+            ui.horizontal_wrapped(|ui| {
+                // 源与源之间约两个空格宽，避免「名·下一点」挤在一起
+                ui.spacing_mut().item_spacing.x = 12.0 * z;
+                ui.spacing_mut().item_spacing.y = 2.0 * z;
                 for (i, (name, st)) in [
                     ("Jian", snap.health_jian),
                     ("Wolfx", snap.health_wolfx),
@@ -2595,28 +2728,41 @@ fn draw_sidebar(
                     } else {
                         p.text_dim
                     };
+                    // 灯与名称紧挨：·Name；源与源之间靠外层 item_spacing（约两空格）
                     let resp = ui
                         .horizontal(|ui| {
-                            let (r, painter) =
-                                ui.allocate_painter(Vec2::splat(9.0 * z), Sense::hover());
-                            painter.circle_filled(r.rect.center(), 3.8 * z, dot);
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            let r_dot = 3.8 * z;
+                            let (r, painter) = ui.allocate_painter(
+                                Vec2::new((r_dot * 2.0 + 1.0).max(8.0 * z), 9.0 * z),
+                                Sense::hover(),
+                            );
+                            painter.circle_filled(
+                                egui::pos2(r.rect.left() + r_dot, r.rect.center().y),
+                                r_dot,
+                                dot,
+                            );
                             ui.label(RichText::new(name).size(12.5 * z).color(p.text_dim));
                         })
                         .response;
                     resp.on_hover_text(tip);
-                    ui.add_space(4.0 * z);
                 }
             });
 
             ui.add_space(8.0 * z);
             draw_side_tabs(ui, p, &mut snap.tab, z);
-            ui.add_space(6.0 * z);
+            ui.add_space(8.0 * z);
 
             let tab = snap.tab;
             let sel = snap.selection;
+            // 横向允许收缩，避免某行撑破后 ScrollArea 记住过宽导致烈度块出窗
             egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
+                .auto_shrink([true, false])
                 .show(ui, |ui| {
+                    let content_w = ui.available_width().min(ui.clip_rect().width()).max(1.0);
+                    ui.set_max_width(content_w);
+                    // 避免首条地名/[FSSN] 顶被标签栏裁切
+                    ui.add_space(4.0 * z);
                     match tab {
                             SidebarTab::Records => {
                                 if snap.records.is_empty() {
@@ -2769,7 +2915,7 @@ fn draw_sidebar(
                                         selected,
                                         show_volcano_icons,
                                         egui::Id::new(("vol", i)),
-                                        z,
+                                        1.0,
                                     ) {
                                         clicked = Some(SideAction::List(SidebarTab::Volcano, i));
                                     }
@@ -2804,7 +2950,10 @@ fn draw_sidebar(
                                         crate::i18n::t("试试缩短地名筛选关键词。"),
                                         z,
                                     );
-                                } else if weather_panel::weather_is_card_mode(weather_display_mode) {
+                                } else if weather_panel::weather_effective_card_mode(
+                                    weather_display_mode,
+                                    ui_zoom,
+                                ) {
                                     ui.label(
                                         RichText::new(crate::i18n::t(
                                             "卡片模式：地图右上台风卡片下方显示气象悬浮卡片，每 30 秒自动轮播，也可点击序号切换。",
@@ -2813,6 +2962,18 @@ fn draw_sidebar(
                                         .color(p.text_dim),
                                     );
                                 } else {
+                                    if weather_panel::weather_is_card_mode(weather_display_mode)
+                                        && ui_zoom < 1.0 - 1e-3
+                                    {
+                                        ui.label(
+                                            RichText::new(crate::i18n::t(
+                                                "窗口小于默认尺寸：已自动改为列表；放大到 1280×720 后恢复卡片。",
+                                            ))
+                                            .size(12.0 * z)
+                                            .color(p.text_dim),
+                                        );
+                                        ui.add_space(4.0 * z);
+                                    }
                                     weather_icons.poll(ui.ctx());
                                     for i in filtered {
                                         let w = &snap.weather[i];
@@ -2829,7 +2990,7 @@ fn draw_sidebar(
                                             icon.as_ref(),
                                             selected,
                                             egui::Id::new(("wx", i)),
-                                            z,
+                                            1.0,
                                         ) {
                                             clicked = Some(SideAction::List(SidebarTab::Weather, i));
                                         }
@@ -3010,7 +3171,7 @@ fn list_row(
     accent: Color32,
     selected: bool,
     id: egui::Id,
-    _z: f32,
+    z: f32,
 ) -> RowClick {
     let bg = if selected {
         p.row_selected
@@ -3018,69 +3179,124 @@ fn list_row(
         Color32::TRANSPARENT
     };
 
-    // 对齐 eewcn EarthquakeListEntryForm：烈度块固定约 40px，地名随宽换行（ExpandHeight）
-    let chip = 40.0_f32;
-    let resp = Frame::NONE
-        .fill(bg)
-        .inner_margin(Margin::symmetric(8, 6))
-        .corner_radius(6.0)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let (stripe, painter) =
-                    ui.allocate_painter(Vec2::new(3.0, chip), Sense::hover());
-                painter.rect_filled(stripe.rect, 1.5, accent);
-                ui.add_space(6.0);
+    // 整行钉死在 available×clip 内手动画；右侧 pad_r≈16px（3–5mm）不贴窗。
+    let z = z.clamp(0.55, 1.0);
+    let mut chip = 40.0 * z;
+    let pad_l = 8.0 * z;
+    let pad_r = (16.0 * z).clamp(14.0, 20.0); // 烈度块与窗口右缘间距
+    let pad_y = 6.0 * z;
+    let stripe_w = 3.0 * z;
+    let gap = 6.0 * z;
+    let place_sz = 14.0 * z;
+    let sub_sz = 12.0 * z;
 
-                // 先占烈度块（右），剩余宽度给文字——等同 eewcn ExpandHeight 扣掉 intensity 宽
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    paint_intensity(
-                        ui,
-                        icons,
-                        kind,
-                        level,
-                        intensity_text,
-                        scale,
-                        chip,
-                        false,
-                    );
-                    ui.add_space(6.0);
-                    let text_w = ui.available_width().max(48.0);
-                    ui.allocate_ui_with_layout(
-                        Vec2::new(text_w, ui.available_height().max(chip)),
-                        egui::Layout::top_down(egui::Align::LEFT),
-                        |ui| {
-                            ui.set_max_width(text_w);
-                            // 地名：窄侧栏换行增高（eewcn labelLocation wordWrap）
-                            ui.add(
-                                egui::Label::new(RichText::new(place).color(p.text).size(14.0))
-                                    .wrap(),
-                            );
-                            ui.add(
-                                egui::Label::new(RichText::new(sub).color(p.text_dim).size(12.0))
-                                    .wrap(),
-                            );
-                            if !mag.is_empty() {
-                                ui.label(RichText::new(mag).color(p.text_muted).size(12.0));
-                            }
-                        },
-                    );
-                });
-            });
-        })
-        .response;
+    let row_w = ui
+        .available_width()
+        .min(ui.clip_rect().width())
+        .min(ui.max_rect().width())
+        .max(1.0);
+    // 保烈度块完整落在行内；不够则略缩 chip（不低于 28）
+    let min_text = 36.0_f32;
+    let reserved = pad_l + pad_r + stripe_w + gap * 2.0 + min_text;
+    if reserved + chip > row_w {
+        chip = (row_w - reserved).clamp(28.0, 40.0 * z);
+    }
+    let text_w = (row_w - pad_l - pad_r - stripe_w - gap * 2.0 - chip).max(24.0);
+
+    let place_galley = ui.fonts(|f| {
+        f.layout(
+            place.to_owned(),
+            FontId::proportional(place_sz),
+            p.text,
+            text_w,
+        )
+    });
+    let sub_galley = ui.fonts(|f| {
+        f.layout(
+            sub.to_owned(),
+            FontId::proportional(sub_sz),
+            p.text_dim,
+            text_w,
+        )
+    });
+    let mag_galley = if mag.is_empty() {
+        None
+    } else {
+        Some(ui.fonts(|f| {
+            f.layout(
+                mag.to_owned(),
+                FontId::proportional(sub_sz),
+                p.text_muted,
+                text_w,
+            )
+        }))
+    };
+    let line_gap = 2.0 * z;
+    let place_h = place_galley.size().y;
+    let sub_h = sub_galley.size().y;
+    let mag_h = mag_galley.as_ref().map(|g| g.size().y).unwrap_or(0.0);
+    let text_h = place_h
+        + line_gap
+        + sub_h
+        + if mag_galley.is_some() {
+            line_gap + mag_h
+        } else {
+            0.0
+        };
+    let body_h = text_h.max(chip);
+    let row_h = body_h + pad_y * 2.0;
+
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(row_w, row_h), Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, 6.0 * z, bg);
+
+    let body = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + pad_l, rect.top() + pad_y),
+        egui::pos2(rect.right() - pad_r, rect.bottom() - pad_y),
+    );
+    painter.rect_filled(
+        egui::Rect::from_min_size(body.min, Vec2::new(stripe_w, body_h)),
+        1.5 * z,
+        accent,
+    );
+
+    let text_x = body.left() + stripe_w + gap;
+    let mut ty = body.top();
+    painter.galley(egui::pos2(text_x, ty), place_galley, p.text);
+    ty += place_h + line_gap;
+    painter.galley(egui::pos2(text_x, ty), sub_galley, p.text_dim);
+    ty += sub_h;
+    if let Some(g) = mag_galley {
+        ty += line_gap;
+        painter.galley(egui::pos2(text_x, ty), g, p.text_muted);
+    }
+
+    // 烈度块贴 body 右缘；body 已相对窗口内缩 pad_r（约 4mm）
+    let chip_rect =
+        egui::Rect::from_min_size(egui::pos2(body.right() - chip, body.top()), Vec2::splat(chip));
+    paint_intensity_at(
+        &painter,
+        chip_rect,
+        icons,
+        kind,
+        level,
+        intensity_text,
+        scale,
+        false,
+    );
 
     let full = ui
-        .interact(resp.rect, id, Sense::click())
+        .interact(rect, id, Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
     if full.hovered() && !selected {
         ui.painter().rect_stroke(
-            resp.rect,
-            6.0,
+            rect,
+            6.0 * z,
             Stroke::new(1.0_f32, p.panel_border),
             egui::StrokeKind::Outside,
         );
     }
-    ui.add_space(2.0);
+    ui.add_space(2.0 * z);
     if full.clicked() {
         RowClick::Primary
     } else {

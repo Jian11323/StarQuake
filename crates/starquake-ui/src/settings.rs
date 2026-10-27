@@ -2652,7 +2652,7 @@ fn draw_about(ui: &mut Ui, _draft: &mut AppConfig) {
         ui.label(
             RichText::new(format!(
                 "{}",
-                t("版本 {}").replace("{}", env!("CARGO_PKG_VERSION"))
+                t("版本 {}").replace("{}", crate::APP_VERSION_DISPLAY)
             ))
             .size(14.0)
             .color(chrome().text),

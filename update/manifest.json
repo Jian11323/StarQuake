@@ -1,21 +1,21 @@
 {
-  "latest_version": "2.3.3-beta",
+  "latest_version": "Beta 2.3.4",
   "min_supported_version": "2.0.0",
   "channel": "beta",
-  "notes": "Beta 2.3.3：自动更新下载进度与安装界面；气象卡片/筛选/轮播（地图不去测站色点）；本地震源推算紫叉接入；过期气象自动移除。",
+  "notes": "Beta 2.3.4：1、修复整体UI缩放问题；2、修复测站计测图标过小的问题；3、重新调整部分UI。",
   "installer": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/v2.3.3-beta/StarQuake_2.3.3-beta_setup.exe",
-    "sha256": "6447b0ee32614b255ee62f0bb9c0fbd9e68a2581bd988c92755d509bcbd665f8",
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.3.4/StarQuake_Beta_2.3.4_setup.exe",
+    "sha256": "55fea0c73dbb6d237670e99b94c87df5ad9480818ba3654973c98aadc1b0f4ec",
     "user_interface": "progress"
   },
   "zip": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/v2.3.3-beta/StarQuake_2.3.3-beta_portable.zip",
-    "sha256": "4753715d97573ff3dd914babbeeddb47133fead3e64fbc830747fdb57c8563bf"
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.3.4/StarQuake_Beta_2.3.4_portable.zip",
+    "sha256": "7795ca7ff1d3072bb1dd1b6cadff7b38c49fdf35432ab581c9fff9de8ee6f893"
   },
   "linux": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/v2.3.3-beta/StarQuake_2.3.3-beta_linux_x86_64.tar.gz",
-    "sha256": "5a443968db5722f63b149d83a567ae5e03ce650efb891747369715e806fed644"
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.3.4/StarQuake_Beta_2.3.4_linux_x86_64.tar.gz",
+    "sha256": "8601587b6dc72e83b701d7644541d750d104076cb467433b9f5a97a65c4e4541"
   },
-  "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/v2.3.3-beta",
-  "html_url": "https://gitee.com/jian0786/starquake/releases/tag/v2.3.3-beta"
+  "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.3.4",
+  "html_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.3.4"
 }

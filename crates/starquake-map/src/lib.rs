@@ -14,7 +14,8 @@ mod tsunami_coast;
 mod vector_basemap;
 
 pub use camera::{
-    cluster_for_fit, fit_events, globe_framed_center, zoom_to_fit_radius_km, CameraFlight,
+    cluster_for_fit, fit_events, globe_framed_center, radius_km_screen_px,
+    zoom_to_fit_radius_for_mode, zoom_to_fit_radius_km, CameraFlight,
 };
 pub use overlay::{StationPaintCache, TyphoonHoverHit};
 pub use projection::{
@@ -344,9 +345,10 @@ impl MapViewport {
         self.flight.is_some() || self.post_flight_active()
     }
 
-    /// 预警期跟 S 波：按恒定速率线性缩小（zoom 减小），不放大。
-    /// `zoom_out_per_sec`：每秒降低的缩放级数（与帧率无关）。
-    /// 镜头始终对准震中经纬（不做球体构图偏置），避免加勒比等区域震中被顶到右侧栏。
+    /// 预警期跟 S 波（调用方须先按 eewcn 规则判定已贴边才传入更低 target）。
+    /// - 当前过远（target > zoom）：较快拉近
+    /// - 当前过近（target < zoom）：按 `zoom_out_per_sec` 缓慢缩小跟随
+    /// 镜头始终对准震中经纬（不做球体构图偏置）。
     pub fn apply_linear_zoom_out(
         &mut self,
         target_zoom: f64,
@@ -359,13 +361,17 @@ impl MapViewport {
             return;
         }
         let target = target_zoom.clamp(ZOOM_MIN, ZOOM_MAX);
-        if target >= self.zoom - 0.02 && focus_lon.is_none() {
+        if (target - self.zoom).abs() < 0.02 && focus_lon.is_none() {
             return;
         }
         let dt = dt.clamp(1e-4, 0.25);
         if target < self.zoom - 0.02 {
             let step = zoom_out_per_sec.clamp(0.05, 2.0) * dt;
             self.zoom = (self.zoom - step).max(target).clamp(ZOOM_MIN, ZOOM_MAX);
+        } else if target > self.zoom + 0.02 {
+            // 视角过远：拉近到「S 贴边」所需 zoom（略快于缩小，尽快回到图四构图）
+            let step = (zoom_out_per_sec * 2.4).clamp(0.15, 3.0) * dt;
+            self.zoom = (self.zoom + step).min(target).clamp(ZOOM_MIN, ZOOM_MAX);
         }
         if let (Some(flon), Some(flat)) = (focus_lon, focus_lat) {
             let tlon = projection::normalize_lon(flon);

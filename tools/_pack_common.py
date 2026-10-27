@@ -15,9 +15,20 @@ REQUIRED_BRAND = (
 
 
 def workspace_version(root: Path) -> str:
+    """Cargo 数字版本（如 2.3.4）。"""
     text = (root / "Cargo.toml").read_text(encoding="utf-8")
     m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
     return m.group(1) if m else "0.0.0"
+
+
+def display_version(root: Path) -> str:
+    """面向用户：Beta 2.3.4。"""
+    return f"Beta {workspace_version(root)}"
+
+
+def pack_version_slug(root: Path) -> str:
+    """发行包文件名用：Beta_2.3.4（空格改下划线）。"""
+    return display_version(root).replace(" ", "_")
 
 
 def assert_brand_assets(root: Path) -> None:

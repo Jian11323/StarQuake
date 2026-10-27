@@ -196,9 +196,9 @@ pub fn globe_framed_center(lon: f64, lat: f64, zoom: f64) -> (f64, f64) {
     (lon, lat)
 }
 
-/// 使 `radius_km` 波圈大约落在视口短边的 `fill` 比例内，反推 zoom。
+/// 使 `radius_km` 波圈大约落在视口短边的 `fill` 比例内，反推 zoom（平面 Web Mercator）。
 pub fn zoom_to_fit_radius_km(lat: f64, radius_km: f64, viewport_min_px: f32, fill: f32) -> f64 {
-    let target_px = (viewport_min_px * fill.clamp(0.25, 0.95)).max(32.0);
+    let target_px = (viewport_min_px * fill.clamp(0.10, 0.95)).max(32.0);
     if radius_km <= 1.0 {
         return 8.0;
     }
@@ -214,6 +214,105 @@ pub fn zoom_to_fit_radius_km(lat: f64, radius_km: f64, viewport_min_px: f32, fil
         }
     }
     ((lo + hi) * 0.5).clamp(ZOOM_MIN, ZOOM_MAX)
+}
+
+/// 球体：使震中处 `radius_km` 大圆半径约占视口短边 `fill`，反推 zoom。
+/// 用实际投影量测（非 Mercator `km_to_pixels`），避免跟焦缩成「地球小点、S 波离边还很远」。
+pub fn zoom_to_fit_radius_km_globe(
+    lon: f64,
+    lat: f64,
+    radius_km: f64,
+    viewport_w: f32,
+    viewport_h: f32,
+    fill: f32,
+) -> f64 {
+    use crate::globe::{move_on_globe, GlobeCamera};
+    use egui::{Pos2, Rect, Vec2};
+
+    let w = viewport_w.max(64.0);
+    let h = viewport_h.max(64.0);
+    let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(w, h));
+    let target_px = (w.min(h) * fill.clamp(0.10, 0.95)).max(32.0) as f64;
+    if radius_km <= 1.0 {
+        return 11.0;
+    }
+    let lon = normalize_lon(lon);
+    let lat = clamp_lat_globe(lat);
+    let mut lo = ZOOM_MIN;
+    let mut hi = ZOOM_MAX;
+    for _ in 0..28 {
+        let mid = (lo + hi) * 0.5;
+        let cam = GlobeCamera::new(lon, lat, mid, rect);
+        let (elon, elat) = move_on_globe(lon, lat, radius_km, 90.0);
+        let px = match (
+            cam.try_project(lon, lat, rect),
+            cam.try_project(elon, elat, rect),
+        ) {
+            (Some(c), Some(e)) => c.distance(e) as f64,
+            // 已出地平线：过近，需要缩小
+            _ => target_px * 2.5,
+        };
+        if px > target_px {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    ((lo + hi) * 0.5).clamp(ZOOM_MIN, ZOOM_MAX)
+}
+
+/// 按投影模式选择平面 / 球体贴边估 zoom。
+pub fn zoom_to_fit_radius_for_mode(
+    lon: f64,
+    lat: f64,
+    radius_km: f64,
+    viewport_w: f32,
+    viewport_h: f32,
+    fill: f32,
+    mode: projection::ProjectionMode,
+) -> f64 {
+    if mode.is_globe() {
+        zoom_to_fit_radius_km_globe(lon, lat, radius_km, viewport_w, viewport_h, fill)
+    } else {
+        zoom_to_fit_radius_km(lat, radius_km, viewport_w.min(viewport_h), fill)
+    }
+}
+
+/// 当前镜头下，震中处 `radius_km` 在屏幕上的像素半径。
+/// 对齐 eewcn：用真实投影量测，再与视口短边比较判断是否「贴边」。
+pub fn radius_km_screen_px(
+    view_lon: f64,
+    view_lat: f64,
+    zoom: f64,
+    epi_lon: f64,
+    epi_lat: f64,
+    radius_km: f64,
+    viewport_w: f32,
+    viewport_h: f32,
+    mode: projection::ProjectionMode,
+) -> f64 {
+    if radius_km <= 0.0 {
+        return 0.0;
+    }
+    if mode.is_globe() {
+        use crate::globe::{move_on_globe, GlobeCamera};
+        use egui::{Pos2, Rect, Vec2};
+        let w = viewport_w.max(64.0);
+        let h = viewport_h.max(64.0);
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(w, h));
+        let cam = GlobeCamera::new(view_lon, view_lat, zoom, rect);
+        let (elon, elat) = move_on_globe(epi_lon, epi_lat, radius_km, 90.0);
+        match (
+            cam.try_project(epi_lon, epi_lat, rect),
+            cam.try_project(elon, elat, rect),
+        ) {
+            (Some(a), Some(b)) => a.distance(b) as f64,
+            // 出地平线：视为已远超贴边
+            _ => (w.min(h) as f64) * 0.65,
+        }
+    } else {
+        projection::km_to_pixels(radius_km, epi_lat, zoom) as f64
+    }
 }
 
 /// 以锚点为中心筛掉过远事件，避免全球多震把镜头拉到 ZOOM_MIN。
@@ -350,6 +449,33 @@ mod flight_timing_tests {
         let near = super::mid_flight_zoom(9.0, 9.5, 180.0, true);
         assert!(near >= 7.8, "near={near}");
         assert!(near > far + 0.5, "near={near} far={far}");
+    }
+}
+
+#[cfg(test)]
+mod fit_radius_mode_tests {
+    use super::{zoom_to_fit_radius_for_mode, zoom_to_fit_radius_km};
+    use crate::projection::ProjectionMode;
+
+    #[test]
+    fn globe_fit_closer_than_mercator_for_mid_s() {
+        // ~1200km S：球体贴边所需 zoom 应明显高于 Mercator（否则会缩成小地球）
+        let r = 1200.0_f64;
+        let flat = zoom_to_fit_radius_km(0.0, r, 700.0, 0.48);
+        let globe = zoom_to_fit_radius_for_mode(
+            160.0,
+            -9.0,
+            r,
+            700.0,
+            700.0,
+            0.48,
+            ProjectionMode::Globe,
+        );
+        assert!(
+            globe > flat + 1.0,
+            "globe={globe} flat={flat} (globe must stay closer)"
+        );
+        assert!(globe >= 8.0, "globe={globe}");
     }
 }
 

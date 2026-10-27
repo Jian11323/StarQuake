@@ -225,6 +225,11 @@ pub(crate) fn weather_is_card_mode(mode: &str) -> bool {
     !mode.trim().eq_ignore_ascii_case("list")
 }
 
+/// 相对设计稿 1280x720：窗口再缩小时强制列表（eewcn）；偏好仍可为 card，放大后恢复悬浮卡。
+pub(crate) fn weather_effective_card_mode(mode: &str, window_zoom: f32) -> bool {
+    weather_is_card_mode(mode) && window_zoom >= 1.0 - 1e-3
+}
+
 fn weather_matches_filter(alert: &WeatherAlert, filter: &str) -> bool {
     let q = filter.trim();
     if q.is_empty() {

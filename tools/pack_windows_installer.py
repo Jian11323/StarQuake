@@ -16,7 +16,7 @@ ROOT = TOOLS.parent
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from _pack_common import assert_brand_assets, workspace_version  # noqa: E402
+from _pack_common import assert_brand_assets, display_version, pack_version_slug  # noqa: E402
 
 NSIS_URL = "https://sourceforge.net/projects/nsis/files/NSIS%203/3.10/nsis-3.10.zip/download"
 NSIS_CACHE = ROOT / "target" / "nsis-3.10"
@@ -99,19 +99,20 @@ def main() -> int:
     if "--reuse-portable" not in sys.argv:
         force = True
 
-    ver = workspace_version(ROOT)
-    log(f"StarQuake {ver} Windows installer")
+    ver_display = display_version(ROOT)
+    ver_slug = pack_version_slug(ROOT)
+    log(f"StarQuake {ver_display} Windows installer")
     assert_brand_assets(ROOT)
     dist = ensure_portable(force=force)
     makensis = ensure_nsis()
-    out = ROOT / "dist" / f"StarQuake_{ver}_setup.exe"
+    out = ROOT / "dist" / f"StarQuake_{ver_slug}_setup.exe"
     if out.exists():
         out.unlink()
 
     # ASCII staging paths — avoid NSIS/cmdline Unicode path issues
     stage_root = Path(os.environ.get("TEMP", tempfile.gettempdir())) / "starquake_nsis"
     stage_dist = stage_root / "StarQuake"
-    stage_out = stage_root / f"StarQuake_{ver}_setup.exe"
+    stage_out = stage_root / f"StarQuake_{ver_slug}_setup.exe"
     if stage_root.exists():
         shutil.rmtree(stage_root, ignore_errors=True)
     stage_root.mkdir(parents=True, exist_ok=True)
@@ -146,7 +147,8 @@ def main() -> int:
     nsi = ROOT / "tools" / "pack_windows_installer.nsi"
     cmd = [
         str(makensis),
-        f"/DVERSION={ver}",
+        f"/DVERSION={ver_slug}",
+        f"/DDISPLAY_VERSION={ver_display}",
         f"/DDIST_DIR={stage_dist}",
         f"/DOUT_FILE={stage_out}",
         f"/DSPLASH_BMP={splash_bmp}",

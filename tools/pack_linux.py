@@ -16,7 +16,12 @@ ROOT = TOOLS.parent
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from _pack_common import assert_brand_assets, copy_ignore_patterns, workspace_version  # noqa: E402
+from _pack_common import (  # noqa: E402
+    assert_brand_assets,
+    copy_ignore_patterns,
+    display_version,
+    pack_version_slug,
+)
 
 LINUX_TARGET = "x86_64-unknown-linux-gnu"
 # glibc 2.31+（Ubuntu 20.04 / Debian 11 一类）
@@ -164,8 +169,9 @@ def main() -> int:
     if "--bin" in args:
         cli_bin = args[args.index("--bin") + 1]
 
-    ver = workspace_version(ROOT)
-    log(f"StarQuake {ver} Linux x86_64 portable")
+    ver_display = display_version(ROOT)
+    ver_slug = pack_version_slug(ROOT)
+    log(f"StarQuake {ver_display} Linux x86_64 portable")
     assert_brand_assets(ROOT)
 
     if not skip_build and cli_bin is None:
@@ -219,9 +225,9 @@ def main() -> int:
         shutil.rmtree(raw)
 
     copy_tree(ROOT / "geodata", out / "geodata")
-    write_usage(out, ver)
+    write_usage(out, ver_display)
 
-    tar_path = ROOT / "dist" / f"StarQuake_{ver}_linux_x86_64.tar.gz"
+    tar_path = ROOT / "dist" / f"StarQuake_{ver_slug}_linux_x86_64.tar.gz"
     if tar_path.exists():
         tar_path.unlink()
     log(f"tar -> {tar_path.name}")

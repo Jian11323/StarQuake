@@ -122,11 +122,11 @@ fn install_cjk_fonts(ctx: &egui::Context) {
 }
 
 fn window_title() -> String {
-    // 版本号本身带 `-beta`（后续发版一律 Beta，不再标正式版）
+    // 展示形如「Beta 2.3.4」（后续发版一律 Beta，不再标正式版）
     format!(
-        "{} v{}",
+        "{} {}",
         starquake_ui::APP_DISPLAY_NAME,
-        env!("CARGO_PKG_VERSION")
+        starquake_ui::APP_VERSION_DISPLAY
     )
 }
 
@@ -283,7 +283,7 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
     let mut pending_startup_install: Option<AvailableUpdate> = None;
     if !force_soft && !env_flag("STARQUAKE_AUTOTEST") {
         let dismissed_before = cfg.update.last_dismissed_update_version.clone();
-        match run_startup_auto_update(&mut cfg.update, env!("CARGO_PKG_VERSION")) {
+        match run_startup_auto_update(&mut cfg.update, starquake_ui::APP_VERSION_DISPLAY) {
             StartupUpdateOutcome::Exit => return Ok(()),
             StartupUpdateOutcome::Continue { checked } => {
                 startup_update_done = checked;
@@ -446,6 +446,7 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
             win.width.clamp(640.0, 7680.0),
             win.height.clamp(480.0, 4320.0),
         ])
+        .with_min_inner_size([640.0, 480.0])
         .with_title(window_title());
     if let (Some(x), Some(y)) = (win.x, win.y) {
         viewport = viewport.with_position([x, y]);
@@ -1105,7 +1106,7 @@ impl eframe::App for StarQuakeApp {
                         .as_ref()
                         .is_some_and(|a| is_eew_camera_target(a) && same_eew_event(a, ev));
                     if is_new_event {
-                        // 新预警：默认飞跃；震中已在近距则只切 active，保持缩放（防相近源反复拉 Z11）
+                        // 新预警：默认飞跃；震中已在近距则只切 active，保持缩放（防相近源反复拉 Z12）
                         let prev = self.snap.active.as_ref().filter(|a| is_eew_camera_target(a));
                         if !skip_eew_camera_jump(&self.shell.map, ev, prev) {
                             let z = gq_jump_zoom();
@@ -1731,7 +1732,7 @@ impl StarQuakeApp {
         };
         let (tx, rx) = mpsc::channel();
         self.update_rx = Some(rx);
-        let local = env!("CARGO_PKG_VERSION").to_string();
+        let local = starquake_ui::APP_VERSION_DISPLAY.to_string();
         std::thread::spawn(move || {
             let res = check_latest(&local).map_err(|e| format!("{e:#}"));
             let _ = tx.send(res);
@@ -2283,12 +2284,12 @@ fn is_eew_camera_target(e: &EewReport) -> bool {
     !e.event_id.starts_with("record:") && !e.event_id.starts_with("station:")
 }
 
-/// 预警跟焦落地固定 Z11；落地后由 auto_zoom 从 Z11 缓慢线性跟 S 波缩小。
+/// 预警跟焦落地固定 Z12；落地后由 auto_zoom 按「S 贴齐视口短边」跟焦（可缓慢缩小）。
 fn gq_jump_zoom() -> f64 {
-    11.0
+    12.0
 }
 
-/// 震中相近（约 250km）：影院轮播 / 新源到达时不飞跃、不重拉 Z11，只切 active。
+/// 震中相近（约 250km）：影院轮播 / 新源到达时不飞跃、不重拉 Z12，只切 active。
 const NEAR_EPICENTER_KM: f64 = 250.0;
 
 fn haversine_km(lon0: f64, lat0: f64, lon1: f64, lat1: f64) -> f64 {
