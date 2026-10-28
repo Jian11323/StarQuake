@@ -652,7 +652,10 @@ impl MapViewport {
                 }
             }
         } else {
-            // 暗色矢量 / 球体：只描轮廓，不填陆地（对齐旧版纯黑轮廓图）
+            // 飞跃：lite 且禁止 mesh delta（每帧轻量重镶，避免共 Arc 深拷贝）
+            // S 波跟焦：lite + delta；静止满质走 still_static
+            let vector_lite = flying || soft_anim;
+            let vector_mesh_delta = soft_anim && !flying;
             if want_vector {
                 self.vector.paint(
                     ui,
@@ -661,7 +664,8 @@ impl MapViewport {
                     self.vector_style,
                     /* skip_world_stroke */ false,
                     self.paint_quality,
-                    /* lite */ flying,
+                    vector_lite,
+                    vector_mesh_delta,
                 );
             }
 
@@ -671,7 +675,8 @@ impl MapViewport {
             } else if !still_hit {
                 let mut layers = Vec::with_capacity(1);
                 if want_vector {
-                    if let Some(m) = self.vector.still_mesh() {
+                    // 独占取出，避免 paint_cache 与 still 双持 Arc → 跟焦每帧深拷贝
+                    if let Some(m) = self.vector.take_still_mesh() {
                         layers.push(m);
                     }
                 }

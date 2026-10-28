@@ -727,8 +727,9 @@ pub fn download_asset_with_progress(
     )
 }
 
-/// 生成 setup.exe 静默安装 bat 正文（可单测）。
-/// `e2e_install_dir` 非空时追加 NSIS `/D=`（须为最后参数、无引号），并优先从该目录拉起。
+/// 生成 setup.exe 安装 bat 正文（可单测）。
+/// 生产：`start /wait` 拉起安装包（有进度窗、无下一步；安装包本身已去掉向导页）。
+/// E2E：追加 `/S /D=`（完全无界面，便于无人值守）。
 #[cfg(windows)]
 fn installer_apply_script(setup: &str, e2e_install_dir: Option<&str>) -> String {
     let mut body = String::from(
@@ -742,13 +743,14 @@ timeout /t 2 /nobreak >nul\r\n",
     );
     body.push_str(&format!("if not exist \"{setup}\" goto :eof\r\n"));
     if let Some(dir) = e2e_install_dir {
-        // NSIS：/D= 必须最后且路径勿加引号
-        body.push_str(&format!("\"{setup}\" /S /D={dir}\r\n"));
+        // NSIS：/D= 必须最后且路径勿加引号；/S 无界面
+        body.push_str(&format!("start /wait \"\" \"{setup}\" /S /D={dir}\r\n"));
         body.push_str(&format!(
             "if exist \"{dir}\\starquake.exe\" (start \"\" \"{dir}\\starquake.exe\" & goto :done)\r\n"
         ));
     } else {
-        body.push_str(&format!("\"{setup}\"\r\n"));
+        // 生产：看见进度窗；安装包无欢迎/目录/完成页，无需点下一步
+        body.push_str(&format!("start /wait \"\" \"{setup}\"\r\n"));
     }
     body.push_str(
         "set \"L1=%ProgramFiles(x86)%\\StarQuake\\starquake.exe\"\r\n\
@@ -1283,7 +1285,7 @@ mod tests {
     #[cfg(windows)]
     fn installer_apply_script_silent_and_e2e_dir() {
         let prod = installer_apply_script(r"C:\Temp\setup.exe", None);
-        assert!(prod.contains(r#""C:\Temp\setup.exe""#));
+        assert!(prod.contains(r#"start /wait "" "C:\Temp\setup.exe""#));
         assert!(!prod.contains(" /S"));
         assert!(!prod.contains("/D="));
         assert!(prod.contains(r"%ProgramFiles(x86)%\StarQuake\starquake.exe"));
@@ -1293,7 +1295,7 @@ mod tests {
             Some(r"C:\Users\Huawei\StarQuakeE2E\install"),
         );
         assert!(e2e.contains(
-            r#""C:\Temp\setup.exe" /S /D=C:\Users\Huawei\StarQuakeE2E\install"#
+            r#"start /wait "" "C:\Temp\setup.exe" /S /D=C:\Users\Huawei\StarQuakeE2E\install"#
         ));
         assert!(e2e.contains(
             r"C:\Users\Huawei\StarQuakeE2E\install\starquake.exe"

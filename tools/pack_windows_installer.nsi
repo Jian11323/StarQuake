@@ -1,13 +1,13 @@
-﻿; StarQuake Windows installer (NSIS)
+; StarQuake Windows installer (NSIS)
 Unicode true
 RequestExecutionLevel admin
 ManifestDPIAware true
 
 !ifndef VERSION
-  !define VERSION "Beta_2.3.4"
+  !define VERSION "Beta_2.3.5"
 !endif
 !ifndef DISPLAY_VERSION
-  !define DISPLAY_VERSION "Beta 2.3.4"
+  !define DISPLAY_VERSION "Beta 2.3.5"
 !endif
 !ifndef DIST_DIR
   !define DIST_DIR "..\dist\StarQuake"
@@ -67,25 +67,18 @@ cancel_install:
 init_done:
 FunctionEnd
 
-!define MUI_ABORTWARNING
 !define MUI_ICON "${DIST_DIR}\icon\brand\app.ico"
 !define MUI_UNICON "${DIST_DIR}\icon\brand\app.ico"
 
-; Welcome/finish sidebar bitmap (generated from splash_bg.png at pack time)
-!define MUI_WELCOMEFINISHPAGE_BITMAP "${SPLASH_BMP}"
-!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${SPLASH_BMP}"
-
-!define MUI_FINISHPAGE_RUN "$INSTDIR\starquake.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "安装完成后运行 StarQuake(&R)"
-
-!insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_DIRECTORY
+; 只保留安装进度页：看得见进度条，无需点「下一步」；装完自动关窗
+; （在线更新勿传 /S，否则会藏掉界面；E2E 无人值守仍可用 /S）
 !insertmacro MUI_PAGE_INSTFILES
-!insertmacro MUI_PAGE_FINISH
-!insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
 !insertmacro MUI_LANGUAGE "English"
+
+AutoCloseWindow true
+ShowInstDetails show
 
 Section "StarQuake" SecMain
   SetOutPath "$INSTDIR"

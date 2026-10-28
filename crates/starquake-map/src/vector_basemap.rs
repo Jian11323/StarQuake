@@ -533,7 +533,19 @@ impl VectorBasemap {
             .map(|c| c.mesh.clone())
     }
 
-    /// `lite`：拖拽/滚轮轻量绘制；飞跃应传 `false`，否则会只剩粗国界像「没加载地图」。
+    /// 取出满质 mesh 独占所有权（供 still_static 跟手；避免与 paint_cache 双持 Arc 导致每帧深拷贝）。
+    pub fn take_still_mesh(&mut self) -> Option<std::sync::Arc<egui::epaint::Mesh>> {
+        let take = self
+            .paint_cache
+            .as_ref()
+            .is_some_and(|c| !c.fly_lite);
+        if !take {
+            return None;
+        }
+        self.paint_cache.take().map(|c| c.mesh)
+    }
+
+    /// `lite`：飞跃/跟焦轻量镶嵌；`mesh_delta`：允许对已有 lite mesh 做缩放+平移（跟焦可开，飞跃须关以免脱锚）。
     pub fn paint(
         &mut self,
         ui: &mut Ui,
@@ -543,6 +555,7 @@ impl VectorBasemap {
         skip_world_stroke: bool,
         quality: PaintQuality,
         lite: bool,
+        mesh_delta: bool,
     ) {
         if !self.world_ready && !self.regional_ready {
             return;
@@ -572,9 +585,8 @@ impl VectorBasemap {
             }
         }
 
-        // 飞跃/拖拽：只用轻量 MD mesh 做缩放+平移。两端 |dz/dt| 大，全量 mesh 按帧缩放必卡；
-        // 中间 zoom 几乎不变所以以前「只平移」显得流畅。
-        if interacting && !view.mode.is_globe() {
+        // 跟焦：轻量 mesh 缩放+平移；飞跃禁止 delta（大跨度仿射会脱锚，且 make_mut 共 Arc 会每帧深拷贝卡顿）
+        if interacting && mesh_delta && !view.mode.is_globe() {
             let lite_ok = self.paint_cache.as_ref().is_some_and(|c| {
                 c.fly_lite && c.interact_key == interact_key
             });
