@@ -1,6 +1,7 @@
-; StarQuake Windows installer (NSIS)
+﻿; StarQuake Windows installer (NSIS)
 Unicode true
 RequestExecutionLevel admin
+ManifestDPIAware true
 
 !ifndef VERSION
   !define VERSION "Beta_2.3.4"
@@ -73,6 +74,9 @@ FunctionEnd
 ; Welcome/finish sidebar bitmap (generated from splash_bg.png at pack time)
 !define MUI_WELCOMEFINISHPAGE_BITMAP "${SPLASH_BMP}"
 !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${SPLASH_BMP}"
+
+!define MUI_FINISHPAGE_RUN "$INSTDIR\starquake.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "安装完成后运行 StarQuake(&R)"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
