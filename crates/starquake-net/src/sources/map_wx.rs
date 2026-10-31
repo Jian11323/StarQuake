@@ -68,11 +68,11 @@ pub fn spawn(tx: NetTx, cfg: MapWxSourceConfig) -> Vec<JoinHandle<()>> {
                     let _ = tx.send(NetEvent::Radar { kind, frame: None });
                     continue;
                 }
-                let url = match kind {
+                let url = crate::jian_endpoint::rewrite_api_url(&match kind {
                     RadarKind::China => cfg.radar_china_url.clone(),
                     RadarKind::Japan => cfg.radar_japan_url.clone(),
                     RadarKind::Taiwan => cfg.radar_taiwan_url.clone(),
-                };
+                });
                 let client = client.clone();
                 radar_jobs.push(async move { (kind, fetch_radar(&client, &url, kind).await) });
             }
@@ -95,10 +95,11 @@ pub fn spawn(tx: NetTx, cfg: MapWxSourceConfig) -> Vec<JoinHandle<()>> {
             }
 
             if precip_h > 0 {
+                let precip_base = crate::jian_endpoint::rewrite_api_url(&cfg.precip_url);
                 let url = format!(
                     "{base}{sep}period={h}&_={ts}",
-                    base = cfg.precip_url,
-                    sep = if cfg.precip_url.contains('?') {
+                    base = precip_base,
+                    sep = if precip_base.contains('?') {
                         '&'
                     } else {
                         '?'

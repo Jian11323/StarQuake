@@ -1,13 +1,13 @@
-; StarQuake Windows installer (NSIS)
+﻿; StarQuake Windows installer (NSIS)
 Unicode true
 RequestExecutionLevel admin
 ManifestDPIAware true
 
 !ifndef VERSION
-  !define VERSION "Beta_2.3.5"
+  !define VERSION "Beta_2.5.1"
 !endif
 !ifndef DISPLAY_VERSION
-  !define DISPLAY_VERSION "Beta 2.3.5"
+  !define DISPLAY_VERSION "Beta 2.5.1"
 !endif
 !ifndef DIST_DIR
   !define DIST_DIR "..\dist\StarQuake"
@@ -21,34 +21,45 @@ ManifestDPIAware true
 
 Name "StarQuake ${DISPLAY_VERSION}"
 OutFile "${OUT_FILE}"
-; 这是个64位程序
+
 InstallDir "$PROGRAMFILES64\StarQuake"
 InstallDirRegKey HKLM "Software\StarQuake" "InstallDir"
 SetCompressor /SOLID lzma
 
 !include "MUI2.nsh"
+!include "FileFunc.nsh"
+!insertmacro GetParameters
+!insertmacro GetOptions
+
+Var IsUpdate
 
 Function .onInit
-  ; 检查注册表中是否存在 StarQuake 的安装记录
+  StrCpy $IsUpdate "0"
+  ${GetParameters} $R9
+  ${GetOptions} $R9 "/UPDATE" $R8
+  IfErrors +2 0
+  StrCpy $IsUpdate "1"
+
+
   ReadRegStr $0 HKLM "Software\StarQuake" "InstallDir"
 
-  ; 如果不存在安装记录，则正常启动安装程序
+
   StrCmp $0 "" init_done
 
-  ; 提示用户是否卸载已安装的软件
+
   MessageBox MB_YESNO|MB_ICONQUESTION \
     "检测到 StarQuake 已安装在以下位置：$\r$\n$0$\r$\n$\r$\n是否卸载已安装的版本并继续安装？" \
     IDYES uninstall_old \
     IDNO cancel_install
 
 uninstall_old:
-  ; 检查旧版本的卸载程序是否存在
+
   IfFileExists "$0\Uninstall.exe" 0 uninstall_missing
 
-  ; 启动旧版本的卸载程序，并等待卸载完成
+
   ExecWait '"$0\Uninstall.exe" _?=$0' $1
 
-  ; 检查卸载程序的退出代码
+
   StrCmp $1 0 init_done uninstall_failed
 
 uninstall_missing:
@@ -67,12 +78,29 @@ cancel_install:
 init_done:
 FunctionEnd
 
+!define MUI_ABORTWARNING
 !define MUI_ICON "${DIST_DIR}\icon\brand\app.ico"
 !define MUI_UNICON "${DIST_DIR}\icon\brand\app.ico"
 
-; 只保留安装进度页：看得见进度条，无需点「下一步」；装完自动关窗
-; （在线更新勿传 /S，否则会藏掉界面；E2E 无人值守仍可用 /S）
+
+!define MUI_WELCOMEFINISHPAGE_BITMAP "${SPLASH_BMP}"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${SPLASH_BMP}"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\starquake.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "安装完成后运行 StarQuake(&R)"
+
+Function SkipIfUpdate
+  StrCmp $IsUpdate "1" 0 +2
+  Abort
+FunctionEnd
+
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfUpdate
+!insertmacro MUI_PAGE_WELCOME
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfUpdate
+!insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfUpdate
+!insertmacro MUI_PAGE_FINISH
+!insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "SimpChinese"
 !insertmacro MUI_LANGUAGE "English"

@@ -1,22 +1,22 @@
 {
-  "latest_version": "Beta 2.3.5",
-  "display_version": "Beta 2.3.5",
+  "latest_version": "Beta 2.5.1",
+  "display_version": "Beta 2.5.1",
   "min_supported_version": "2.0.0",
   "channel": "beta",
-  "notes": "Beta 2.3.5：1、修复极致模式下占用异常问题；2、修复小窗口下设置页面溢出窗口问题；3、修复雷达不贴合地图的问题；4、修复断层加载问题以及不贴合球体问题（该功能尚未完全修复，请谨慎使用）。",
+  "notes": "Beta 2.5.1：1、设置页支持 Jian 主服/备服手动选择与自动切换（api.sismotide.top ↔ api.jianproject.cloud）；2、恢复安装包自定义安装路径（在线更新仍跳过向导页）。",
   "installer": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.3.5/StarQuake_Beta_2.3.5_setup.exe",
-    "sha256": "66c3cc08ea4cd7033df5f8e712980baa482dc8b75bb72adade645b3d68459e4b",
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.1/StarQuake_Beta_2.5.1_setup.exe",
+    "sha256": "9caf8be19eecb8656e1e5e86ea9921a7ab7f26bd7c5ee922c049a681430691b6",
     "user_interface": "progress"
   },
   "zip": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.3.5/StarQuake_Beta_2.3.5_portable.zip",
-    "sha256": "99af822a2c5cea050abca551d60dd7c742184990d83abe43b33e8630834688b6"
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.1/StarQuake_Beta_2.5.1_portable.zip",
+    "sha256": "1936a5d3d4aa5924a59a4e9aebfc907f71d97d7ba9a4d326f6d500ebdb03cb39"
   },
   "linux": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.3.5/StarQuake_Beta_2.3.5_linux_x86_64.tar.gz",
-    "sha256": "fd43b1f8ba32ede5a783e540908eb00400349b0872dc44776081a6adaec7ce13"
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.1/StarQuake_Beta_2.5.1_linux_x86_64.tar.gz",
+    "sha256": ""
   },
-  "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.3.5",
-  "html_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.3.5"
+  "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.5.1",
+  "html_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.5.1"
 }

@@ -18,8 +18,8 @@ pub fn spawn(tx: NetTx, cfg: TyphoonSourceConfig) -> Vec<JoinHandle<()>> {
         return Vec::new();
     }
     let poll = cfg.poll_secs.max(10);
-    let url = cfg.url.clone();
-    info!(%url, poll_secs = poll, "typhoon: spawn http poll");
+    let url_base = cfg.url.clone();
+    info!(%url_base, poll_secs = poll, "typhoon: spawn http poll");
 
     vec![tokio::spawn(async move {
         let client = match reqwest::Client::builder()
@@ -44,6 +44,7 @@ pub fn spawn(tx: NetTx, cfg: TyphoonSourceConfig) -> Vec<JoinHandle<()>> {
 
         loop {
             emit_health(&tx, "typhoon", HealthStatus::Fluctuating);
+            let url = crate::jian_endpoint::rewrite_api_url(&url_base);
             let fetch_url = format!(
                 "{url}{sep}_={ts}",
                 sep = if url.contains('?') { '&' } else { '?' },
@@ -68,6 +69,7 @@ pub fn spawn(tx: NetTx, cfg: TyphoonSourceConfig) -> Vec<JoinHandle<()>> {
                 }
                 Err(e) => warn!("typhoon fetch: {e}"),
             }
+            crate::jian_endpoint::note_connect_result(ok);
             emit_health(
                 &tx,
                 "typhoon",

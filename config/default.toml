@@ -121,6 +121,8 @@ cwa_eew = true
 kma_eew = true
 sa_eew = true
 early_est_eew = true
+# auto = 主服失败切备服并择机回切；primary = api.sismotide.top；backup = api.jianproject.cloud
+endpoint_mode = "auto"
 # 兼容旧键：与 stations.jma_enabled + jma_source=jian 同步
 station_enabled = true
 # station_ws_url = "wss://api.sismotide.top/kmoni"

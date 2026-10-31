@@ -47,6 +47,7 @@ pub fn spawn(
                 let url = cfg.jma_jian_ws.clone();
                 info!(%url, "stations: spawn Jian /kmoni (no auth)");
                 let tx_k = tx.clone();
+                let resolve = jian_rewrite_resolve(url.clone());
                 tasks.push(tokio::spawn(async move {
                     let mut state = KmoniState::default();
                     run_ws_loop(
@@ -54,7 +55,7 @@ pub fn spawn(
                         WsLoopOpts {
                             source: "kmoni",
                             url,
-                            resolve_url: None,
+                            resolve_url: Some(resolve),
                             on_open_texts: Vec::new(),
                             periodic_texts: Vec::new(),
                             periodic_secs: 0,
@@ -89,6 +90,7 @@ pub fn spawn(
         let url = cfg.kma_jian_ws.clone();
         info!(%url, "stations: spawn Jian /kma-station (no auth)");
         let tx_k = tx.clone();
+        let resolve = jian_rewrite_resolve(url.clone());
         tasks.push(tokio::spawn(async move {
             let mut state = KmoniState::default();
             run_ws_loop(
@@ -96,7 +98,7 @@ pub fn spawn(
                 WsLoopOpts {
                     source: "kma-station",
                     url,
-                    resolve_url: None,
+                    resolve_url: Some(resolve),
                     on_open_texts: Vec::new(),
                     periodic_texts: Vec::new(),
                     periodic_secs: 0,
@@ -112,8 +114,13 @@ pub fn spawn(
     tasks
 }
 
+fn jian_rewrite_resolve(base: String) -> crate::sources::ws::ResolveUrl {
+    std::sync::Arc::new(move || Ok(crate::jian_endpoint::rewrite_api_url(&base)))
+}
+
 fn spawn_snet_jian(tx: NetTx, url: String) -> JoinHandle<()> {
     info!(%url, "stations: spawn Jian /s-net (no auth; 资料~1min，对时~1Hz)");
+    let resolve = jian_rewrite_resolve(url.clone());
     tokio::spawn(async move {
         let mut state = KmoniState::default();
         run_ws_loop(
@@ -121,7 +128,7 @@ fn spawn_snet_jian(tx: NetTx, url: String) -> JoinHandle<()> {
             WsLoopOpts {
                 source: "s-net",
                 url,
-                resolve_url: None,
+                resolve_url: Some(resolve),
                 on_open_texts: Vec::new(),
                 periodic_texts: Vec::new(),
                 periodic_secs: 0,

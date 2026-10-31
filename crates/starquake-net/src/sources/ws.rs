@@ -108,8 +108,12 @@ where
             "connecting"
         );
 
+        let jian_api = url_is_jian_api(&url);
         match connect_async(&url).await {
             Ok((ws, _)) => {
+                if jian_api {
+                    crate::jian_endpoint::note_connect_result(true);
+                }
                 emit_health(&tx, opts.source, HealthStatus::Normal);
                 backoff = 1;
                 let (mut write, mut read) = ws.split();
@@ -263,6 +267,9 @@ where
                     "connect failed: {}",
                     redact_secrets(&es)
                 );
+                if jian_api {
+                    crate::jian_endpoint::note_connect_result(false);
+                }
                 if is_conn_limit_text(&es) || is_ban_text(&es) || es.contains("403") || es.contains("429")
                 {
                     emit_notice_from_text(&tx, &es);
@@ -288,6 +295,12 @@ async fn sleep_until_deadline(from: Instant, window: Duration) {
     if deadline > now {
         sleep(deadline - now).await;
     }
+}
+
+fn url_is_jian_api(url: &str) -> bool {
+    let low = url.to_ascii_lowercase();
+    low.contains(crate::jian_endpoint::PRIMARY_HOST)
+        || low.contains(crate::jian_endpoint::BACKUP_HOST)
 }
 
 fn is_error_frame(text: &str) -> bool {

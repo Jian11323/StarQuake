@@ -1445,6 +1445,43 @@ fn draw_sources(
         control_row(ui, "启用 /all", "连接 Jian 聚合通道（需令牌）", "\u{26a1}", |ui| {
             toggle(ui, &mut draft.sources.jian.enabled);
         });
+        row_divider(ui);
+        control_row(
+            ui,
+            "API 入口",
+            "主服 api.sismotide.top / 备服 api.jianproject.cloud",
+            "\u{25ce}",
+            |ui| {
+                let mode = draft.sources.jian.endpoint_mode.trim().to_ascii_lowercase();
+                let cur = if mode == "primary" {
+                    "primary"
+                } else if mode == "backup" {
+                    "backup"
+                } else {
+                    "auto"
+                };
+                egui::ComboBox::from_id_salt("set_jian_endpoint")
+                    .selected_text(jian_endpoint_label(cur))
+                    .width(220.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut draft.sources.jian.endpoint_mode,
+                            "auto".into(),
+                            t("自动（失败切换）"),
+                        );
+                        ui.selectable_value(
+                            &mut draft.sources.jian.endpoint_mode,
+                            "primary".into(),
+                            t("主服"),
+                        );
+                        ui.selectable_value(
+                            &mut draft.sources.jian.endpoint_mode,
+                            "backup".into(),
+                            t("备服"),
+                        );
+                    });
+            },
+        );
         for fam in starquake_core::EEW_FILTER_FAMILIES {
             row_divider(ui);
             let mut on = jian_eew_flag(draft, *fam);
@@ -2699,6 +2736,14 @@ fn draw_advanced(ui: &mut Ui, draft: &mut AppConfig, action: &mut Option<Setting
                 .color(chrome().muted),
         );
     });
+}
+
+fn jian_endpoint_label(mode: &str) -> String {
+    match mode {
+        "primary" => t("主服").to_string(),
+        "backup" => t("备服").to_string(),
+        _ => t("自动（失败切换）").to_string(),
+    }
 }
 
 fn jma_station_src_label(s: &str) -> String {

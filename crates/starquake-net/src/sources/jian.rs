@@ -57,8 +57,9 @@ pub fn url_with_key(base: &str, token: &str) -> String {
 /// `/all` 每次 connect 前换票拼 `key=`（测站中转无需鉴权，勿用于站网）。
 pub fn make_resolve_url(base_url: String, cfg: JianSourceConfig) -> crate::sources::ws::ResolveUrl {
     Arc::new(move || {
+        let rewritten = crate::jian_endpoint::rewrite_api_url(&base_url);
         let token = resolve_access_token(&cfg)?;
-        Ok(url_with_key(&base_url, &token))
+        Ok(url_with_key(&rewritten, &token))
     })
 }
 

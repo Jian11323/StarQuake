@@ -800,6 +800,9 @@ pub struct JianSourceConfig {
     /// 建议用 `/all` 单连接，避免占满并发额度
     #[serde(default = "default_jian_ws")]
     pub ws_url: String,
+    /// Jian API 入口：`auto`（失败自动主↔备）| `primary`（api.sismotide.top）| `backup`（api.jianproject.cloud）
+    #[serde(default = "default_jian_endpoint_mode")]
+    pub endpoint_mode: String,
     /// 短期访问令牌 `at_…`（运行时 / 环境变量；不写入用户覆盖）
     #[serde(default)]
     pub access_token: Option<String>,
@@ -989,6 +992,9 @@ fn default_false() -> bool {
 }
 fn default_jian_ws() -> String {
     "wss://api.sismotide.top/all".into()
+}
+fn default_jian_endpoint_mode() -> String {
+    "auto".into()
 }
 fn default_jian_station_ws() -> String {
     "wss://api.sismotide.top/kmoni".into()
@@ -1189,6 +1195,7 @@ impl Default for AppConfig {
                     sa_eew: true,
                     early_est_eew: true,
                     ws_url: default_jian_ws(),
+                    endpoint_mode: default_jian_endpoint_mode(),
                     access_token: None,
                     refresh_token: None,
                     refresh_expire_at: 0.0,
@@ -1717,6 +1724,7 @@ impl AppConfig {
             && self.sources.jian.early_est_eew == other.sources.jian.early_est_eew
             && self.sources.jian.station_enabled == other.sources.jian.station_enabled
             && self.sources.jian.ws_url == other.sources.jian.ws_url
+            && self.sources.jian.endpoint_mode == other.sources.jian.endpoint_mode
             && self.sources.jian.station_ws_url == other.sources.jian.station_ws_url
             && self.sources.jian.refresh_token == other.sources.jian.refresh_token
             && self.sources.jian.access_token == other.sources.jian.access_token

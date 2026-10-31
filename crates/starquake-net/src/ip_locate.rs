@@ -35,8 +35,9 @@ pub fn locate_by_public_ip() -> Result<IpLocateOk, String> {
         .user_agent(UA)
         .build()
         .map_err(|e| e.to_string())?;
+    let url = crate::jian_endpoint::rewrite_api_url(IP_URL);
     let resp = client
-        .get(IP_URL)
+        .get(&url)
         .header("Accept", "application/json")
         .send()
         .map_err(|e| e.to_string())?;

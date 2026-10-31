@@ -4,6 +4,7 @@ pub mod adapter;
 pub mod bus;
 pub mod auth;
 pub mod ip_locate;
+pub mod jian_endpoint;
 pub mod notice;
 pub mod place;
 pub mod sources;
@@ -12,6 +13,7 @@ pub use auth::{
     exchange_access_token, exchange_login_key, format_expire_date, verify_refresh_token, TokenOk,
 };
 pub use ip_locate::{locate_by_public_ip, IpLocateOk};
+pub use jian_endpoint::{active_host, normalize_mode as normalize_jian_endpoint_mode, rewrite_api_url};
 pub use notice::{notice_from_server, parse_server_error};
 pub mod time_parse;
 
@@ -81,8 +83,11 @@ pub fn spawn_hub_with_assets(
     assets_stations: Option<std::path::PathBuf>,
 ) -> NetHub {
     let (tx, rx) = channel();
+    jian_endpoint::set_mode(&sources.jian.endpoint_mode);
     info!(
         jian = sources.jian.enabled,
+        jian_endpoint = %jian_endpoint::normalize_mode(&sources.jian.endpoint_mode),
+        jian_host = jian_endpoint::active_host(),
         wolfx = sources.wolfx.enabled,
         p2p = sources.p2pquake.enabled,
         fssn = sources.fssn.enabled,
