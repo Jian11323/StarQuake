@@ -13,7 +13,10 @@ pub use auth::{
     exchange_access_token, exchange_login_key, format_expire_date, verify_refresh_token, TokenOk,
 };
 pub use ip_locate::{locate_by_public_ip, IpLocateOk};
-pub use jian_endpoint::{active_host, normalize_mode as normalize_jian_endpoint_mode, rewrite_api_url};
+pub use jian_endpoint::{
+    active_host, normalize_mode as normalize_jian_endpoint_mode, rewrite_api_url, BACKUP_HOST,
+    PRIMARY_HOST,
+};
 pub use notice::{notice_from_server, parse_server_error};
 pub mod time_parse;
 

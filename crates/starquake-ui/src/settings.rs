@@ -7,7 +7,10 @@ use egui::{
 use crate::i18n::{t, Lang};
 use starquake_config::AppConfig;
 use starquake_core::HealthStatus;
-use starquake_net::{exchange_login_key, format_expire_date, locate_by_public_ip, IpLocateOk};
+use starquake_net::{
+    active_host, exchange_login_key, format_expire_date, locate_by_public_ip, BACKUP_HOST,
+    IpLocateOk,
+};
 use std::sync::mpsc;
 
 mod filters_ui;
@@ -1426,7 +1429,7 @@ fn draw_sources(
     let mut exchange = false;
 
     section(ui, "服务器状态", "\u{25c9}", |ui| {
-        status_row(ui, "Jian Project", health.jian, health.jian_enabled);
+        status_row(ui, &jian_status_label(), health.jian, health.jian_enabled);
         row_divider(ui);
         status_row(ui, "Wolfx", health.wolfx, health.wolfx_enabled);
         row_divider(ui);
@@ -2743,6 +2746,15 @@ fn jian_endpoint_label(mode: &str) -> String {
         "primary" => t("主服务器").to_string(),
         "backup" => t("备服务器").to_string(),
         _ => t("自动切换").to_string(),
+    }
+}
+
+/// 设置页「服务器状态」：按当前实际连接主机区分主/备展示名。
+fn jian_status_label() -> String {
+    if active_host() == BACKUP_HOST {
+        t("Jian Project API备用服务器").to_string()
+    } else {
+        t("Jian Project API主服务器").to_string()
     }
 }
 

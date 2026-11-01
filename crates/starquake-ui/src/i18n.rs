@@ -121,6 +121,12 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "JMA-Atom"), "JMA-Atom");
         m.insert((Lang::Ja, "JMA-Atom"), "JMA-Atom");
         m.insert((Lang::En, "JMA-Atom"), "JMA-Atom");
+        m.insert((Lang::ZhTw, "Jian Project API主服务器"), "Jian Project API主伺服器");
+        m.insert((Lang::Ja, "Jian Project API主服务器"), "Jian Project API メインサーバー");
+        m.insert((Lang::En, "Jian Project API主服务器"), "Jian Project API Primary");
+        m.insert((Lang::ZhTw, "Jian Project API备用服务器"), "Jian Project API備用伺服器");
+        m.insert((Lang::Ja, "Jian Project API备用服务器"), "Jian Project API バックアップサーバー");
+        m.insert((Lang::En, "Jian Project API备用服务器"), "Jian Project API Backup");
         m.insert((Lang::ZhTw, "Jian Project / Kmoni / lmoni"), "Jian Project / Kmoni / lmoni");
         m.insert((Lang::Ja, "Jian Project / Kmoni / lmoni"), "Jian Project / Kmoni / lmoni");
         m.insert((Lang::En, "Jian Project / Kmoni / lmoni"), "Jian Project / Kmoni / lmoni");
