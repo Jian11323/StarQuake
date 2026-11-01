@@ -122,6 +122,8 @@ pub fn spawn(tx: NetTx, cfg: MapWxSourceConfig) -> Vec<JoinHandle<()>> {
                 let _ = tx.send(NetEvent::Precip(None));
             }
 
+            // 与台风 GET 一致：结果反馈主/备自动切换（仅 auto 模式会翻转）
+            crate::jian_endpoint::note_connect_result(ok_any);
             emit_health(
                 &tx,
                 "map_wx",

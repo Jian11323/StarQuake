@@ -88,6 +88,10 @@ fn dispatch_jian_data(
         return;
     }
     let agency = agency.trim();
+    // 已下架源：丢弃，避免进速报列表 /「其他」
+    if is_retired_agency(agency) {
+        return;
+    }
     if is_tsunami_agency(agency) {
         if let Some(ts) = parse_jian_tsunami(agency, data) {
             let _ = tx.send(NetEvent::Tsunami(ts));
@@ -129,6 +133,11 @@ pub(crate) fn agency_from_list_response(typ: &str) -> &str {
     typ.strip_suffix("list_response")
         .map(|s| s.strip_suffix('_').unwrap_or(s))
         .unwrap_or(typ)
+}
+
+fn is_retired_agency(agency: &str) -> bool {
+    let a = agency.trim().to_ascii_lowercase();
+    a == "nrcan" || a.starts_with("nrcan-") || a.starts_with("nrcan_")
 }
 
 fn is_tsunami_agency(agency: &str) -> bool {

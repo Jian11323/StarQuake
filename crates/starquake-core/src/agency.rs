@@ -29,7 +29,6 @@ pub const RECORD_FILTER_FAMILIES: &[AgencyFamily] = &[
     AgencyFamily::Bcsf,
     AgencyFamily::Usp,
     AgencyFamily::Ingv,
-    AgencyFamily::Nrcan,
     AgencyFamily::Tmd,
     AgencyFamily::Mmd,
     AgencyFamily::Bmkg,
@@ -88,7 +87,6 @@ pub fn agency_bracket(agency: &str) -> String {
         AgencyFamily::Bcsf => "BCSF".into(),
         AgencyFamily::Usp => "USP".into(),
         AgencyFamily::Ingv => "INGV".into(),
-        AgencyFamily::Nrcan => "NRCan".into(),
         AgencyFamily::Tmd => "TMD".into(),
         AgencyFamily::Mmd => "MMD".into(),
         AgencyFamily::Bmkg => "BMKG".into(),
@@ -165,7 +163,6 @@ pub enum AgencyFamily {
     Bcsf,
     Usp,
     Ingv,
-    Nrcan,
     Tmd,
     Mmd,
     Bmkg,
@@ -216,7 +213,6 @@ impl AgencyFamily {
             Self::Bcsf => "bcsf",
             Self::Usp => "usp",
             Self::Ingv => "ingv",
-            Self::Nrcan => "nrcan",
             Self::Tmd => "tmd",
             Self::Mmd => "mmd",
             Self::Bmkg => "bmkg",
@@ -267,7 +263,6 @@ impl AgencyFamily {
             Self::Bcsf => "BCSF",
             Self::Usp => "USP",
             Self::Ingv => "INGV",
-            Self::Nrcan => "NRCan",
             Self::Tmd => "TMD",
             Self::Mmd => "MMD",
             Self::Bmkg => "BMKG",
@@ -317,7 +312,6 @@ impl AgencyFamily {
             Self::Bcsf => "法国中央地震研究所",
             Self::Usp => "巴西圣保罗大学",
             Self::Ingv => "意大利国家地球物理与火山学研究所",
-            Self::Nrcan => "加拿大自然资源部",
             Self::Tmd => "泰国气象局",
             Self::Mmd => "马来西亚气象局",
             Self::Bmkg => "印度尼西亚气象气候与地球物理局",
@@ -431,9 +425,6 @@ pub fn agency_family(agency: &str) -> AgencyFamily {
     }
     if a.contains("ingv") {
         return AgencyFamily::Ingv;
-    }
-    if a.contains("nrcan") {
-        return AgencyFamily::Nrcan;
     }
     if a == "tmd" || a.starts_with("tmd-") {
         return AgencyFamily::Tmd;

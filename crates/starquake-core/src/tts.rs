@@ -44,7 +44,6 @@ pub fn agency_tts_name(agency: &str, is_eew: bool, is_warn: bool) -> String {
         AgencyFamily::Bcsf => "法国国家地震局".into(),
         AgencyFamily::Ingv => "意大利国家地球物理与火山研究所".into(),
         AgencyFamily::Usp => "巴西圣保罗大学".into(),
-        AgencyFamily::Nrcan => "加拿大国家地震研究中心".into(),
         AgencyFamily::Afad => "土耳其地震研究中心".into(),
         AgencyFamily::Ipma => "葡萄牙气象研究所".into(),
         AgencyFamily::Noa => "希腊国家天文台".into(),
