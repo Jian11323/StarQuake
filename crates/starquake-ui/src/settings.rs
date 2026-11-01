@@ -1449,7 +1449,7 @@ fn draw_sources(
         control_row(
             ui,
             "服务器选择",
-            "主服务器用 auth.sismotide.top 换票；备服务器用 auth.jianproject.cloud 换票",
+            "主服务器 api.sismotide.top / 备服务器 api.jianproject.cloud",
             "\u{25ce}",
             |ui| {
                 let mode = draft.sources.jian.endpoint_mode.trim().to_ascii_lowercase();
