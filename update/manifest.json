@@ -1,22 +1,22 @@
 {
-  "latest_version": "Beta 2.5.1",
-  "display_version": "Beta 2.5.1",
+  "latest_version": "Beta 2.5.2",
+  "display_version": "Beta 2.5.2",
   "min_supported_version": "2.0.0",
   "channel": "beta",
-  "notes": "Beta 2.5.1：1、设置页支持 Jian 主服/备服手动选择与自动切换（api.sismotide.top ↔ api.jianproject.cloud）；2、恢复安装包自定义安装路径（在线更新仍跳过向导页）。",
+  "notes": "Beta 2.5.2：1、备服务器连接与鉴权稳定性；2、服务器选择相关体验调整。",
   "installer": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.1/StarQuake_Beta_2.5.1_setup.exe",
-    "sha256": "9caf8be19eecb8656e1e5e86ea9921a7ab7f26bd7c5ee922c049a681430691b6",
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.2/StarQuake_Beta_2.5.2_setup.exe",
+    "sha256": "",
     "user_interface": "progress"
   },
   "zip": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.1/StarQuake_Beta_2.5.1_portable.zip",
-    "sha256": "1936a5d3d4aa5924a59a4e9aebfc907f71d97d7ba9a4d326f6d500ebdb03cb39"
-  },
-  "linux": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.1/StarQuake_Beta_2.5.1_linux_x86_64.tar.gz",
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.2/StarQuake_Beta_2.5.2_portable.zip",
     "sha256": ""
   },
-  "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.5.1",
-  "html_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.5.1"
+  "linux": {
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.2/StarQuake_Beta_2.5.2_linux_x86_64.tar.gz",
+    "sha256": ""
+  },
+  "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.5.2",
+  "html_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.5.2"
 }
