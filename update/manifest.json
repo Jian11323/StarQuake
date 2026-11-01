@@ -6,12 +6,12 @@
   "notes": "Beta 2.5.2：1、备服务器连接与鉴权稳定性；2、服务器选择相关体验调整。",
   "installer": {
     "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.2/StarQuake_Beta_2.5.2_setup.exe",
-    "sha256": "",
+    "sha256": "1841e46a464cbfe49404eef0be663a21acdd1242b93d5f7f4715afde963315e6",
     "user_interface": "progress"
   },
   "zip": {
     "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.2/StarQuake_Beta_2.5.2_portable.zip",
-    "sha256": ""
+    "sha256": "1476903a94619aab22d77a078e87bb1ddffda62222d3b321dae4e7a97278ee1a"
   },
   "linux": {
     "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.2/StarQuake_Beta_2.5.2_linux_x86_64.tar.gz",
