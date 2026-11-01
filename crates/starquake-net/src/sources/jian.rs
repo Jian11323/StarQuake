@@ -42,6 +42,12 @@ pub fn resolve_access_token(cfg: &JianSourceConfig) -> Result<String, String> {
         .map(|s| s.trim())
         .filter(|s| s.starts_with("at_"))
     {
+        // 备服本地票仓不包含主站新签发的 at_；无 rt_ 时禁止直通，避免未鉴权封禁。
+        if crate::jian_endpoint::active_host() == crate::jian_endpoint::BACKUP_HOST {
+            return Err(
+                "备服务器不能直接使用 at_；请保存 rt_，由客户端向 auth.jianproject.cloud 换票".into(),
+            );
+        }
         return Ok(at.to_string());
     }
     Err("无 at_/rt_（请在设置中用 lk_ 换票）".into())
