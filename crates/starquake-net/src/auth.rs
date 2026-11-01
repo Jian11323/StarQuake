@@ -1,13 +1,28 @@
-//! Jian Project 鉴权：`lk_` → `rt_` → `at_`（auth.sismotide.top）。
+//! Jian Project 鉴权：`lk_` → `rt_` → `at_`。
+//!
+//! - `lk_`→`rt_` 签发固定走主站 `auth.sismotide.top`
+//! - `rt_`→`at_` 随当前 API 主机：主服务器 → `auth.sismotide.top`；
+//!   备服务器 → `api.jianproject.cloud/api/access`（备服 auth-site replica；本地验票）
 
 use serde::Deserialize;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::jian_endpoint::{self, BACKUP_HOST};
 use crate::notice::{notice_from_server, parse_server_error};
 
 const REFRESH_URL: &str = "https://auth.sismotide.top/api/refresh";
-const ACCESS_URL: &str = "https://auth.sismotide.top/api/access";
+/// 备服公网 `auth.jianproject.cloud` 尚无独立 HTTPS 证书时，换 at_ 挂在 API 域。
+const BACKUP_ACCESS_URL: &str = "https://api.jianproject.cloud/api/access";
+const PRIMARY_ACCESS_URL: &str = "https://auth.sismotide.top/api/access";
 const UA: &str = "StarQuake/0.1";
+
+fn access_url_for_active_api() -> &'static str {
+    if jian_endpoint::active_host() == BACKUP_HOST {
+        BACKUP_ACCESS_URL
+    } else {
+        PRIMARY_ACCESS_URL
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct TokenOk {
@@ -154,7 +169,7 @@ fn post_bearer(url: &str, token: &str) -> Result<TokenOk, String> {
     Err("鉴权响应无法解析".into())
 }
 
-/// 用邮件登录密钥 `lk_` 换取长期 Token `rt_`（约 180 天）。
+/// 用邮件登录密钥 `lk_` 换取长期 Token `rt_`（约 180 天）。签发固定主站。
 pub fn exchange_login_key(login_key: &str) -> Result<TokenOk, String> {
     let key = login_key.trim();
     if key.is_empty() {
@@ -179,7 +194,7 @@ pub fn exchange_login_key(login_key: &str) -> Result<TokenOk, String> {
     Ok(ok)
 }
 
-/// 用长期 Token `rt_` 换取访问令牌 `at_`（约 1 小时）。
+/// 用长期 Token `rt_` 换取访问令牌 `at_`（约 1 小时）。鉴权口随当前 API 主机。
 pub fn exchange_access_token(refresh_token: &str) -> Result<TokenOk, String> {
     let token = refresh_token.trim();
     if token.is_empty() {
@@ -188,7 +203,8 @@ pub fn exchange_access_token(refresh_token: &str) -> Result<TokenOk, String> {
     if classify(token) != "refresh" {
         return Err("长期 Token 须为 rt_ 开头".into());
     }
-    let ok = post_bearer(ACCESS_URL, token)?;
+    let url = access_url_for_active_api();
+    let ok = post_bearer(url, token)?;
     if !ok.token.starts_with("at_") {
         return Err("期望 at_ 访问令牌，收到非预期前缀".into());
     }

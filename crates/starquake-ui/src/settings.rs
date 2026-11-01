@@ -1448,8 +1448,8 @@ fn draw_sources(
         row_divider(ui);
         control_row(
             ui,
-            "API 入口",
-            "主服 api.sismotide.top / 备服 api.jianproject.cloud",
+            "服务器选择",
+            "主服务器 api.sismotide.top / 备服务器 api.jianproject.cloud",
             "\u{25ce}",
             |ui| {
                 let mode = draft.sources.jian.endpoint_mode.trim().to_ascii_lowercase();
@@ -1467,17 +1467,17 @@ fn draw_sources(
                         ui.selectable_value(
                             &mut draft.sources.jian.endpoint_mode,
                             "auto".into(),
-                            t("自动（失败切换）"),
+                            t("自动切换"),
                         );
                         ui.selectable_value(
                             &mut draft.sources.jian.endpoint_mode,
                             "primary".into(),
-                            t("主服"),
+                            t("主服务器"),
                         );
                         ui.selectable_value(
                             &mut draft.sources.jian.endpoint_mode,
                             "backup".into(),
-                            t("备服"),
+                            t("备服务器"),
                         );
                     });
             },
@@ -2740,9 +2740,9 @@ fn draw_advanced(ui: &mut Ui, draft: &mut AppConfig, action: &mut Option<Setting
 
 fn jian_endpoint_label(mode: &str) -> String {
     match mode {
-        "primary" => t("主服").to_string(),
-        "backup" => t("备服").to_string(),
-        _ => t("自动（失败切换）").to_string(),
+        "primary" => t("主服务器").to_string(),
+        "backup" => t("备服务器").to_string(),
+        _ => t("自动切换").to_string(),
     }
 }
 

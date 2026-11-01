@@ -1,8 +1,8 @@
-//! Jian Project API 主服 / 备服选择与自动切换。
+//! Jian Project API 主服务器 / 备服务器选择与自动切换。
 //!
-//! - 主服：`api.sismotide.top`
-//! - 备服：`api.jianproject.cloud`
-//! - 鉴权签发仍固定走 `auth.sismotide.top`（不随本模块切换）
+//! - 主服务器：`api.sismotide.top`
+//! - 备服务器：`api.jianproject.cloud`
+//! - `lk_`→`rt_` 签发固定 `auth.sismotide.top`；`rt_`→`at_` 随当前 API 主机走对应鉴权口
 //!
 //! `endpoint_mode`：`auto` | `primary` | `backup`
 

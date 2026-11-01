@@ -800,7 +800,7 @@ pub struct JianSourceConfig {
     /// 建议用 `/all` 单连接，避免占满并发额度
     #[serde(default = "default_jian_ws")]
     pub ws_url: String,
-    /// Jian API 入口：`auto`（失败自动主↔备）| `primary`（api.sismotide.top）| `backup`（api.jianproject.cloud）
+    /// Jian 服务器选择：`auto`（自动切换主↔备）| `primary`（api.sismotide.top）| `backup`（api.jianproject.cloud）
     #[serde(default = "default_jian_endpoint_mode")]
     pub endpoint_mode: String,
     /// 短期访问令牌 `at_…`（运行时 / 环境变量；不写入用户覆盖）
