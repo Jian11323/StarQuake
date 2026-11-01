@@ -2,7 +2,7 @@
 //!
 //! - `lk_`→`rt_` 签发固定走主站 `auth.sismotide.top`
 //! - `rt_`→`at_` 随当前 API 主机：主服务器 → `auth.sismotide.top`；
-//!   备服务器 → `api.jianproject.cloud/api/access`（备服 auth-site replica；本地验票）
+//!   备服务器 → `auth.jianproject.cloud/api/access`
 
 use serde::Deserialize;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -11,8 +11,7 @@ use crate::jian_endpoint::{self, BACKUP_HOST};
 use crate::notice::{notice_from_server, parse_server_error};
 
 const REFRESH_URL: &str = "https://auth.sismotide.top/api/refresh";
-/// 备服公网 `auth.jianproject.cloud` 尚无独立 HTTPS 证书时，换 at_ 挂在 API 域。
-const BACKUP_ACCESS_URL: &str = "https://api.jianproject.cloud/api/access";
+const BACKUP_ACCESS_URL: &str = "https://auth.jianproject.cloud/api/access";
 const PRIMARY_ACCESS_URL: &str = "https://auth.sismotide.top/api/access";
 const UA: &str = "StarQuake/0.1";
 
