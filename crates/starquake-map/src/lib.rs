@@ -386,12 +386,13 @@ impl MapViewport {
         let z0 = self.zoom;
         let lon0 = self.center_lon;
         let lat0 = self.center_lat;
-        let dt = dt.clamp(1e-4, 0.25);
+        // 钳制单帧步进，避免 unstable_dt 尖峰造成非线性跳变
+        let dt = dt.clamp(1e-4, 1.0 / 45.0);
         if target < self.zoom - 0.02 {
             let step = zoom_out_per_sec.clamp(0.05, 2.0) * dt;
             self.zoom = (self.zoom - step).max(target).clamp(ZOOM_MIN, ZOOM_MAX);
         } else if target > self.zoom + 0.02 {
-            // 视角过远：拉近到「S 贴边」所需 zoom（略快于缩小，尽快回到图四构图）
+            // 视角过远：拉近到「S 贴边」所需 zoom（略快于缩小，尽快回到构图）
             let step = (zoom_out_per_sec * 2.4).clamp(0.15, 3.0) * dt;
             self.zoom = (self.zoom + step).min(target).clamp(ZOOM_MIN, ZOOM_MAX);
         }
@@ -576,13 +577,15 @@ impl MapViewport {
             self.vector_style,
             want_vector,
         );
-        // 平面：拖/滚轮/跟焦均可变换已缓存层（飞跃仍走完整路径）；漂移过大再重建
+        // 平面：拖/滚轮/跟焦均可变换已缓存层（飞跃仍走完整路径）。
+        // 跟焦中放宽漂移：禁止中途打爆重镶（否则线条抽搐 + 非线性顿挫）。
         let still_can_xform = !flying
             && !globe
             && self.still_static.as_ref().is_some_and(|s| {
                 s.base_key == still_base
                     && !s.layers.is_empty()
                     && (s.key == still_key
+                        || soft_anim
                         || still_view_drift_ok(
                             s.anchor_lon,
                             s.anchor_lat,
@@ -597,6 +600,7 @@ impl MapViewport {
                 .is_some_and(|s| apply_still_static_view_delta(s, &view, still_key));
         let still_hit = still_transformed
             || (!interacting
+                && !soft_anim
                 && self
                     .still_static
                     .as_ref()
@@ -631,10 +635,10 @@ impl MapViewport {
                 }
             }
         } else {
-            // 飞跃/拖图：lite + delta（平面逐帧仿射，避免每帧重镶卡顿；脱锚时自动回落重建）
-            // S 波跟焦：禁止 fly_lite（跟焦结束切满质会闪线）；优先 still 变换，否则满质 mesh delta
+            // 飞跃/拖图：lite + delta（平面逐帧仿射，避免每帧重镶卡顿）
+            // S 波跟焦：只走 still 变换；此处仅在无 still 时满质建一帧，禁止 fly_lite（会闪线）
             let vector_lite = flying || dragging;
-            let vector_mesh_delta = !globe && (soft_anim || dragging || flying);
+            let vector_mesh_delta = !globe && (dragging || flying);
             if want_vector {
                 self.vector.paint(
                     ui,
@@ -893,8 +897,8 @@ fn still_static_key(
 
 /// 跟焦缩放允许的视角漂移：过大则需重裁剪，否则边缘会空白。
 fn still_view_drift_ok(build_lon: f64, build_lat: f64, build_zoom: f64, view: &ViewCtx) -> bool {
-    // S 波慢缩常跨 1～2 级；过紧会反复重镶导致线条抽搐与卡顿
-    if (view.zoom - build_zoom).abs() > 2.0 {
+    // 拖图/滚轮：允许约 2.5 级缩放差再重裁，避免滚轮连续缩放时反复重镶抽搐
+    if (view.zoom - build_zoom).abs() > 2.5 {
         return false;
     }
     let dlat = (view.center_lat - build_lat).abs();
@@ -902,7 +906,7 @@ fn still_view_drift_ok(build_lon: f64, build_lat: f64, build_zoom: f64, view: &V
     if dlon > 180.0 {
         dlon = 360.0 - dlon;
     }
-    dlat <= 5.0 && dlon <= 5.0
+    dlat <= 6.0 && dlon <= 6.0
 }
 
 /// 平面仍图层：按 zoom 差缩放 + 中心平移，供 S 波线性跟焦复用。
@@ -929,7 +933,12 @@ fn apply_still_static_view_delta(s: &mut StillStatic, view: &ViewCtx, new_key: u
     if need_s || need_t {
         let origin = view.rect.center();
         for layer in &mut s.layers {
-            let mesh = Arc::make_mut(layer);
+            // 若上一帧 Shape 仍占有 Arc，先拆成独占，避免 make_mut 每帧深拷贝整网卡顿
+            if Arc::get_mut(layer).is_none() {
+                let owned = layer.as_ref().clone();
+                *layer = Arc::new(owned);
+            }
+            let mesh = Arc::get_mut(layer).expect("exclusive after clone");
             if need_s && need_t {
                 let t = egui::vec2(dx, dy);
                 for v in &mut mesh.vertices {
@@ -947,6 +956,12 @@ fn apply_still_static_view_delta(s: &mut StillStatic, view: &ViewCtx, new_key: u
     s.mesh_zoom = view.zoom;
     s.mesh_lon = view.center_lon;
     s.mesh_lat = view.center_lat;
+    // 跟焦连续缩放时勿把 anchor_zoom 锁死在首帧，否则边缘空白判定失真
+    if (view.zoom - s.anchor_zoom).abs() > 0.85 {
+        s.anchor_zoom = view.zoom;
+        s.anchor_lon = view.center_lon;
+        s.anchor_lat = view.center_lat;
+    }
     s.key = new_key;
     true
 }

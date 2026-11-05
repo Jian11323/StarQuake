@@ -1466,10 +1466,6 @@ fn draw_sources(
         status_row(ui, "P2PQuake", health.p2p, health.p2p_enabled);
         row_divider(ui);
         status_row(ui, "PancakesAPI", health.pancakes, health.pancakes_enabled);
-        row_divider(ui);
-        status_row(ui, "气象预警", health.weather, health.weather_enabled);
-        row_divider(ui);
-        status_row(ui, "烈度速报", health.cenc_int, health.cenc_int_enabled);
     });
 
     section(ui, "Jian Project", "\u{25ce}", |ui| {
@@ -1513,15 +1509,6 @@ fn draw_sources(
                     });
             },
         );
-        for fam in starquake_core::EEW_FILTER_FAMILIES {
-            row_divider(ui);
-            let mut on = jian_eew_flag(draft, *fam);
-            let sub = format!("[{}]", fam.bracket_label());
-            control_row(ui, fam.display_name(), &sub, "\u{25ce}", |ui| {
-                toggle(ui, &mut on);
-            });
-            set_jian_eew_flag(draft, *fam, on);
-        }
         row_divider(ui);
         control_field_below(
             ui,
@@ -1574,6 +1561,19 @@ fn draw_sources(
                     .size(11.5)
                     .color(chrome().muted),
             );
+        }
+        for fam in starquake_core::EEW_FILTER_FAMILIES {
+            row_divider(ui);
+            let mut on = jian_eew_flag(draft, *fam);
+            let sub = if matches!(fam, starquake_core::AgencyFamily::Sa) {
+                "[SA][USGS]".to_string()
+            } else {
+                format!("[{}]", fam.bracket_label())
+            };
+            control_row(ui, fam.display_name(), &sub, "\u{25ce}", |ui| {
+                toggle(ui, &mut on);
+            });
+            set_jian_eew_flag(draft, *fam, on);
         }
         ui.add_space(10.0);
         ui.label(
@@ -1778,6 +1778,7 @@ fn jian_eew_flag(draft: &AppConfig, fam: starquake_core::AgencyFamily) -> bool {
     match fam {
         AgencyFamily::Jma => draft.sources.jian.jma_eew,
         AgencyFamily::Cea => draft.sources.jian.cea_eew,
+        AgencyFamily::CeaPr => draft.sources.jian.cea_pr_eew,
         AgencyFamily::Cwa => draft.sources.jian.cwa_eew,
         AgencyFamily::Kma => draft.sources.jian.kma_eew,
         AgencyFamily::Sa => draft.sources.jian.sa_eew,
@@ -1791,6 +1792,7 @@ fn set_jian_eew_flag(draft: &mut AppConfig, fam: starquake_core::AgencyFamily, o
     match fam {
         AgencyFamily::Jma => draft.sources.jian.jma_eew = on,
         AgencyFamily::Cea => draft.sources.jian.cea_eew = on,
+        AgencyFamily::CeaPr => draft.sources.jian.cea_pr_eew = on,
         AgencyFamily::Cwa => draft.sources.jian.cwa_eew = on,
         AgencyFamily::Kma => draft.sources.jian.kma_eew = on,
         AgencyFamily::Sa => draft.sources.jian.sa_eew = on,

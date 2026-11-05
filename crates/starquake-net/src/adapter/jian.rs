@@ -121,6 +121,7 @@ fn jian_accepts_eew(cfg: &starquake_config::JianSourceConfig, agency: &str) -> b
     match agency_family(agency) {
         AgencyFamily::Jma => cfg.jma_eew,
         AgencyFamily::Cea => cfg.cea_eew,
+        AgencyFamily::CeaPr => cfg.cea_pr_eew,
         AgencyFamily::Cwa => cfg.cwa_eew,
         AgencyFamily::Kma => cfg.kma_eew,
         AgencyFamily::Sa => cfg.sa_eew,

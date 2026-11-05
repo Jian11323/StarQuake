@@ -16,6 +16,7 @@ pub fn agency_tts_name(agency: &str, is_eew: bool, is_warn: bool) -> String {
     }
     match agency_family(agency) {
         AgencyFamily::Cea => "中国预警网".into(),
+        AgencyFamily::CeaPr => "中国预警网省网".into(),
         AgencyFamily::Jma if is_eew => {
             if is_warn {
                 "日本气象厅警报".into()

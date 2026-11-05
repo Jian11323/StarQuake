@@ -606,12 +606,12 @@ impl VectorBasemap {
             self.paint_cache = None;
         }
 
-        // 平面：跟焦缩放/微移时对满质 mesh 做缩放+平移；漂移过大再重建
+        // 平面：拖/缩时对满质 mesh 做缩放+平移；过紧会滚轮连缩反复重镶抽搐
         let can_xform = self.paint_cache.as_ref().is_some_and(|c| {
             !view.mode.is_globe()
                 && !c.fly_lite
                 && c.interact_key == interact_key
-                && (c.build_zoom - view.zoom).abs() <= 0.55
+                && (c.build_zoom - view.zoom).abs() <= 2.2
         });
         if can_xform {
             if let Some(c) = self.paint_cache.as_mut() {

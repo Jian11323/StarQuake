@@ -786,6 +786,9 @@ pub struct JianSourceConfig {
     pub jma_eew: bool,
     #[serde(default = "default_true")]
     pub cea_eew: bool,
+    /// 省网 cea-pr（与国网 cea 分开开关）
+    #[serde(default = "default_true")]
+    pub cea_pr_eew: bool,
     #[serde(default = "default_true")]
     pub cwa_eew: bool,
     #[serde(default = "default_true")]
@@ -1166,6 +1169,7 @@ impl Default for AppConfig {
                     record_enabled: true,
                     jma_eew: true,
                     cea_eew: true,
+                    cea_pr_eew: true,
                     cwa_eew: true,
                     kma_eew: true,
                     sa_eew: true,
@@ -1692,6 +1696,7 @@ impl AppConfig {
             && self.sources.jian.record_enabled == other.sources.jian.record_enabled
             && self.sources.jian.jma_eew == other.sources.jian.jma_eew
             && self.sources.jian.cea_eew == other.sources.jian.cea_eew
+            && self.sources.jian.cea_pr_eew == other.sources.jian.cea_pr_eew
             && self.sources.jian.cwa_eew == other.sources.jian.cwa_eew
             && self.sources.jian.kma_eew == other.sources.jian.kma_eew
             && self.sources.jian.sa_eew == other.sources.jian.sa_eew

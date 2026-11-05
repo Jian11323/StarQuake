@@ -118,6 +118,7 @@ eew_enabled = true
 record_enabled = true
 jma_eew = true
 cea_eew = true
+cea_pr_eew = true
 cwa_eew = true
 kma_eew = true
 sa_eew = true
