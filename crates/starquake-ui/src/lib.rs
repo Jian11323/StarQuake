@@ -272,7 +272,6 @@ impl MainShell {
             cfg.sources.wolfx.enabled,
             cfg.sources.p2pquake.enabled,
             cfg.sources.pancakes.enabled,
-            cfg.sources.fssn.enabled,
         ];
         let show_volcanoes = cfg.ui.show_volcanoes;
 
@@ -1073,14 +1072,12 @@ impl MainShell {
             wolfx: snap.health_wolfx,
             p2p: snap.health_p2p,
             pancakes: snap.health_pancakes,
-            fssn: snap.health_fssn,
             weather: snap.health_weather,
             cenc_int: snap.health_cenc_int,
             jian_enabled: cfg.sources.jian.enabled,
             wolfx_enabled: cfg.sources.wolfx.enabled,
             p2p_enabled: cfg.sources.p2pquake.enabled,
             pancakes_enabled: cfg.sources.pancakes.enabled,
-            fssn_enabled: cfg.sources.fssn.enabled,
             weather_enabled: cfg.sources.weather.enabled,
             cenc_int_enabled: cfg.sources.cenc_int.enabled,
         };
@@ -2586,7 +2583,7 @@ fn draw_sidebar(
     icons: &IntensityIcons,
     weather_icons: &mut WeatherIconCache,
     show_volcano_icons: bool,
-    source_enabled: [bool; 5],
+    source_enabled: [bool; 4],
     detached: bool,
     ui_zoom: f32,
     weather_display_mode: &mut String,
@@ -2731,7 +2728,6 @@ fn draw_sidebar(
                     ("Wolfx", snap.health_wolfx),
                     ("P2P", snap.health_p2p),
                     ("Pancakes", snap.health_pancakes),
-                    ("FSSN", snap.health_fssn),
                 ]
                 .into_iter()
                 .enumerate()
@@ -2780,7 +2776,7 @@ fn draw_sidebar(
                 .show(ui, |ui| {
                     let content_w = ui.available_width().min(ui.clip_rect().width()).max(1.0);
                     ui.set_max_width(content_w);
-                    // 避免首条地名/[FSSN] 顶被标签栏裁切
+                    // 避免首条地名/机构标签顶被标签栏裁切
                     ui.add_space(4.0 * z);
                     match tab {
                             SidebarTab::Records => {

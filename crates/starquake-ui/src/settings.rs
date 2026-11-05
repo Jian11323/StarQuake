@@ -275,14 +275,12 @@ pub struct SourceHealthView {
     pub wolfx: HealthStatus,
     pub p2p: HealthStatus,
     pub pancakes: HealthStatus,
-    pub fssn: HealthStatus,
     pub weather: HealthStatus,
     pub cenc_int: HealthStatus,
     pub jian_enabled: bool,
     pub wolfx_enabled: bool,
     pub p2p_enabled: bool,
     pub pancakes_enabled: bool,
-    pub fssn_enabled: bool,
     pub weather_enabled: bool,
     pub cenc_int_enabled: bool,
 }
@@ -1437,8 +1435,6 @@ fn draw_sources(
         row_divider(ui);
         status_row(ui, "PancakesAPI", health.pancakes, health.pancakes_enabled);
         row_divider(ui);
-        status_row(ui, "FSSN", health.fssn, health.fssn_enabled);
-        row_divider(ui);
         status_row(ui, "气象预警", health.weather, health.weather_enabled);
         row_divider(ui);
         status_row(ui, "烈度速报", health.cenc_int, health.cenc_int_enabled);
@@ -1595,12 +1591,6 @@ fn draw_sources(
         row_divider(ui);
         control_row(ui, "JMA 速报", "jma_eqlist", "\u{25ce}", |ui| {
             toggle(ui, &mut draft.sources.wolfx.jma_eqlist);
-        });
-    });
-
-    section(ui, "FSSN", "\u{25ce}", |ui| {
-        control_row(ui, "启用 FSSN", "Fan Studio 地震信息", "\u{26a1}", |ui| {
-            toggle(ui, &mut draft.sources.fssn.enabled);
         });
     });
 
@@ -2887,7 +2877,7 @@ fn draw_about(ui: &mut Ui, _draft: &mut AppConfig) {
         );
         ui.label(
             RichText::new(t(
-                "\u{00b7} Jian Project API\n\u{00b7} PancakesAPI\n\u{00b7} Wolfx\n\u{00b7} P2PQuake\n\u{00b7} FSSN",
+                "\u{00b7} Jian Project API\n\u{00b7} PancakesAPI\n\u{00b7} Wolfx\n\u{00b7} P2PQuake",
             ))
             .size(12.0)
             .color(chrome().muted),

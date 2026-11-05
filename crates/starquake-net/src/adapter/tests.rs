@@ -3,91 +3,13 @@
 use super::jian::{agency_from_list_response, parse_jian_record};
 use super::pancakes::strip_jma_volcano_name_label;
 use super::{
-    ingest_fssn_frame, ingest_jian_frame, ingest_p2p_items, ingest_snet_frame,
+    ingest_jian_frame, ingest_p2p_items, ingest_snet_frame,
     ingest_wolfx_eqlist, ingest_wolfx_frame, KmoniState,
 };
 use crate::bus::{channel, NetEvent};
 use starquake_core::IntensityKind;
 
 
-    #[test]
-    fn fssn_initial_keeps_zh_place_and_estimates_intensity() {
-        let body = r#"{
-          "type": "initial",
-          "Data": {
-            "id": "FSSN2026tsch",
-            "shockTime": "2026-10-08 14:46:47",
-            "latitude": -52.5994,
-            "longitude": 140.3181,
-            "depth": 10,
-            "magnitude": 5.4,
-            "placeName": "West of Macquarie Island",
-            "placeName_zh": "麦夸里岛以西",
-            "infoTypeName": "正式(已核实)"
-          }
-        }"#;
-        let (tx, mut rx) = channel();
-        ingest_fssn_frame(&tx, body);
-        let NetEvent::Record(rec) = rx.try_recv().expect("record") else {
-            panic!("expected Record");
-        };
-        assert_eq!(rec.agency.0, "fssn");
-        assert!(rec.place.contains("麦夸里岛以西"));
-        assert!((rec.magnitude - 5.4).abs() < 1e-6);
-        assert!((rec.depth_km - 10.0).abs() < 1e-6);
-        // M5.4@10km 震中估：约 7.x → 档位 7~8
-        assert!(
-            (6..=9).contains(&rec.intensity_level),
-            "expected estimated CSIS level, got {}",
-            rec.intensity_level
-        );
-        assert_ne!(rec.intensity_text, "—");
-        assert!(rec.origin_ms > 0);
-    }
-
-    #[test]
-    fn fssn_deep_quake_shows_low_estimated_intensity() {
-        let body = r#"{
-          "type": "update",
-          "Data": {
-            "shockTime": "2026-10-25 10:36:30",
-            "latitude": 27.0,
-            "longitude": 142.0,
-            "depth": 515,
-            "magnitude": 4.9,
-            "placeName_zh": "日本小笠原群岛地区"
-          }
-        }"#;
-        let (tx, mut rx) = channel();
-        ingest_fssn_frame(&tx, body);
-        let NetEvent::Record(rec) = rx.try_recv().expect("record") else {
-            panic!("expected Record");
-        };
-        assert_eq!(rec.intensity_level, 0);
-        assert!(
-            rec.intensity_text.contains('.'),
-            "deep M4.9@515km should show decimal estimate, got {}",
-            rec.intensity_text
-        );
-        assert_ne!(rec.intensity_text, "—");
-    }
-
-    #[test]
-    fn fssn_skips_when_depth_missing() {
-        let body = r#"{
-          "type": "update",
-          "Data": {
-            "shockTime": "2026-10-08 14:46:47",
-            "latitude": 1.0,
-            "longitude": 2.0,
-            "magnitude": 4.0,
-            "placeName_zh": "测试"
-          }
-        }"#;
-        let (tx, mut rx) = channel();
-        ingest_fssn_frame(&tx, body);
-        assert!(rx.try_recv().is_err());
-    }
 
     #[test]
     fn strip_jma_volcano_name_label_removes_field_prefix() {

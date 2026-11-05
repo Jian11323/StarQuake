@@ -305,7 +305,6 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
         jian = cfg.sources.jian.enabled,
         wolfx = cfg.sources.wolfx.enabled,
         p2p = cfg.sources.p2pquake.enabled,
-        fssn = cfg.sources.fssn.enabled,
         jian_at = cfg
             .sources
             .jian
@@ -495,7 +494,7 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
                 cinema_next_at: Instant::now(),
                 cinema_seen_key: String::new(),
                 cinema_prev_live: Vec::new(),
-                prev_health: [HealthStatus::Abnormal; 5],
+                prev_health: [HealthStatus::Abnormal; 4],
                 prev_tsunami_key: String::new(),
                 eew_alert_played: HashSet::new(),
                 nhk_bell_played: HashSet::new(),
@@ -752,7 +751,7 @@ struct StarQuakeApp {
     cinema_seen_key: String,
     /// 上一帧 cinema 队列（用于同事件换源/换 id 时勿当新震飞跃）
     cinema_prev_live: Vec<EewReport>,
-    prev_health: [HealthStatus; 5],
+    prev_health: [HealthStatus; 4],
     prev_tsunami_key: String,
     /// 已播 JMA 警报专用音的事件键 agency|event_id
     eew_alert_played: HashSet<String>,
@@ -2098,7 +2097,6 @@ impl StarQuakeApp {
             self.snap.health_wolfx,
             self.snap.health_p2p,
             self.snap.health_pancakes,
-            self.snap.health_fssn,
         ];
         let prev = self.prev_health;
         if prev == cur {
@@ -2109,8 +2107,8 @@ impl StarQuakeApp {
             self.prev_health = cur;
             return;
         }
-        let any_ok = |h: [HealthStatus; 5]| h.iter().any(|s| matches!(s, HealthStatus::Normal));
-        let all_bad = |h: [HealthStatus; 5]| h.iter().all(|s| matches!(s, HealthStatus::Abnormal));
+        let any_ok = |h: [HealthStatus; 4]| h.iter().any(|s| matches!(s, HealthStatus::Normal));
+        let all_bad = |h: [HealthStatus; 4]| h.iter().all(|s| matches!(s, HealthStatus::Abnormal));
         if let Some(audio) = self.audio.as_mut() {
             if !any_ok(prev) && any_ok(cur) {
                 audio.play(AudioCue::UiConnectOk);

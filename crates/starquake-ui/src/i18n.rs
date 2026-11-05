@@ -226,9 +226,9 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "· EEW CN\n· GlobalQuake 0.11\n· Kanameishi\n· RhythmQuake\n· Scratch-Realtime-Earthquake-Viewer-Page"), "· EEW CN\n· GlobalQuake 0.11\n· Kanameishi\n· RhythmQuake\n· Scratch-Realtime-Earthquake-Viewer-Page");
         m.insert((Lang::Ja, "· EEW CN\n· GlobalQuake 0.11\n· Kanameishi\n· RhythmQuake\n· Scratch-Realtime-Earthquake-Viewer-Page"), "· EEW CN\n· GlobalQuake 0.11\n· Kanameishi\n· RhythmQuake\n· Scratch-Realtime-Earthquake-Viewer-Page");
         m.insert((Lang::En, "· EEW CN\n· GlobalQuake 0.11\n· Kanameishi\n· RhythmQuake\n· Scratch-Realtime-Earthquake-Viewer-Page"), "· EEW CN\n· GlobalQuake 0.11\n· Kanameishi\n· RhythmQuake\n· Scratch-Realtime-Earthquake-Viewer-Page");
-        m.insert((Lang::ZhTw, "· Jian Project API（预警 / 速报 / 测站中转）\n· PancakesAPI（GQ + JMA-Atom）\n· Wolfx（all_eew 预警与速报）\n· P2PQuake（气象厅地震情报）\n· FSSN（Fan Studio 地震信息）\n· 台风路径（sismotide /get/typhoon）\n· NIED kmoni / lmoni 测站（可选）"), "· Jian Project API（預警 / 速報 / 測站中轉）\n· PancakesAPI（GQ + JMA-Atom）\n· Wolfx（all_eew 預警與速報）\n· P2PQuake（氣象廳地震情報）\n· FSSN（Fan Studio 地震資訊）\n· 颱風路徑（sismotide /get/typhoon）\n· NIED kmoni / lmoni 測站（可選）");
-        m.insert((Lang::Ja, "· Jian Project API（预警 / 速报 / 测站中转）\n· PancakesAPI（GQ + JMA-Atom）\n· Wolfx（all_eew 预警与速报）\n· P2PQuake（气象厅地震情报）\n· FSSN（Fan Studio 地震信息）\n· 台风路径（sismotide /get/typhoon）\n· NIED kmoni / lmoni 测站（可选）"), "· Jian Project API（警報 / 情報 / 観測点中継）\n· PancakesAPI（GQ + JMA-Atom）\n· Wolfx（all_eew 警報と情報）\n· P2PQuake（気象庁地震情報）\n· FSSN（Fan Studio 地震情報）\n· 台風経路（sismotide /get/typhoon）\n· NIED kmoni / lmoni 観測点（任意）");
-        m.insert((Lang::En, "· Jian Project API（预警 / 速报 / 测站中转）\n· PancakesAPI（GQ + JMA-Atom）\n· Wolfx（all_eew 预警与速报）\n· P2PQuake（气象厅地震情报）\n· FSSN（Fan Studio 地震信息）\n· 台风路径（sismotide /get/typhoon）\n· NIED kmoni / lmoni 测站（可选）"), "· Jian Project API (EEW / reports / station relay)\n· PancakesAPI (GQ + JMA-Atom)\n· Wolfx (all_eew alerts & reports)\n· P2PQuake (JMA quake info)\n· FSSN (Fan Studio earthquake reports)\n· Typhoon tracks (sismotide /get/typhoon)\n· NIED kmoni / lmoni stations (optional)");
+        m.insert((Lang::ZhTw, "· Jian Project API（预警 / 速报 / 测站中转）\n· PancakesAPI（GQ + JMA-Atom）\n· Wolfx（all_eew 预警与速报）\n· P2PQuake（气象厅地震情报）\n· 台风路径（sismotide /get/typhoon）\n· NIED kmoni / lmoni 测站（可选）"), "· Jian Project API（預警 / 速報 / 測站中轉）\n· PancakesAPI（GQ + JMA-Atom）\n· Wolfx（all_eew 預警與速報）\n· P2PQuake（氣象廳地震情報）\n· 颱風路徑（sismotide /get/typhoon）\n· NIED kmoni / lmoni 測站（可選）");
+        m.insert((Lang::Ja, "· Jian Project API（预警 / 速报 / 测站中转）\n· PancakesAPI（GQ + JMA-Atom）\n· Wolfx（all_eew 预警与速报）\n· P2PQuake（气象厅地震情报）\n· 台风路径（sismotide /get/typhoon）\n· NIED kmoni / lmoni 测站（可选）"), "· Jian Project API（警報 / 情報 / 観測点中継）\n· PancakesAPI（GQ + JMA-Atom）\n· Wolfx（all_eew 警報と情報）\n· P2PQuake（気象庁地震情報）\n· 台風経路（sismotide /get/typhoon）\n· NIED kmoni / lmoni 観測点（任意）");
+        m.insert((Lang::En, "· Jian Project API（预警 / 速报 / 测站中转）\n· PancakesAPI（GQ + JMA-Atom）\n· Wolfx（all_eew 预警与速报）\n· P2PQuake（气象厅地震情报）\n· 台风路径（sismotide /get/typhoon）\n· NIED kmoni / lmoni 测站（可选）"), "· Jian Project API (EEW / reports / station relay)\n· PancakesAPI (GQ + JMA-Atom)\n· Wolfx (all_eew alerts & reports)\n· P2PQuake (JMA quake info)\n· Typhoon tracks (sismotide /get/typhoon)\n· NIED kmoni / lmoni stations (optional)");
         m.insert((Lang::ZhTw, "一键清除"), "一鍵清除");
         m.insert((Lang::Ja, "一键清除"), "一括消去");
         m.insert((Lang::En, "一键清除"), "Clear all");
@@ -449,12 +449,6 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "启用 /all"), "啟用 /all");
         m.insert((Lang::Ja, "启用 /all"), "/all を有効化");
         m.insert((Lang::En, "启用 /all"), "Enable /all");
-        m.insert((Lang::ZhTw, "启用 FSSN"), "啟用 FSSN");
-        m.insert((Lang::Ja, "启用 FSSN"), "FSSN を有効化");
-        m.insert((Lang::En, "启用 FSSN"), "Enable FSSN");
-        m.insert((Lang::ZhTw, "Fan Studio 地震信息"), "Fan Studio 地震資訊");
-        m.insert((Lang::Ja, "Fan Studio 地震信息"), "Fan Studio 地震情報");
-        m.insert((Lang::En, "Fan Studio 地震信息"), "Fan Studio earthquake reports");
         m.insert((Lang::ZhTw, "启用 P2PQuake"), "啟用 P2PQuake");
         m.insert((Lang::Ja, "启用 P2PQuake"), "P2PQuake を有効化");
         m.insert((Lang::En, "启用 P2PQuake"), "Enable P2PQuake");

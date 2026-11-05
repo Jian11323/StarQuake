@@ -81,7 +81,6 @@
 - 地震预警（CEA/CWA/JMA/KMA 等）、地震速报、海啸情报、实时测站、台风路径、气象预警：[Jian Project API](https://api.sismotide.top/api/)
 - 地震预警（CEA/SC/FJ/CWA/JMA/CENC）、地震列表（CENC/JMA）：[Wolfx Open API](https://wolfx.jp/api/)（请注意参考接口文档）
 - 地震信息（JMA）：[P2PQuake](https://www.p2pquake.net/)
-- 地震信息（FSSN）：[FSSN WebSocket API](https://fssn-api.fanstudio.tech/#fssn)
 - GlobalQuake 全球预警、JMA-Atom 火山情报：[PancakesAPI](https://wiki.aloys23.link/wiki/PancakesAPI)
 - 日本测站烈度：[NIED 強震モニタ](https://www.lmoni.bosai.go.jp/)
 - 亮色海洋地形瓦片：[sismotide tilemap](https://tilemap.sismotide.top/)

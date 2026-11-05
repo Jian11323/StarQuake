@@ -51,7 +51,6 @@ DEFAULTS = {
     "radar_tw": "https://api.sismotide.top/get/radar-taiwan.json",
     "precip": "https://api.sismotide.top/get/precip-forecast.json",
     "weather_ws": "wss://api.sismotide.top/weather",
-    "fssn_ws": "wss://fssn-api.fanstudio.tech/fssn",
 }
 
 UA = "StarQuake-stress/2.0 (+https://github.com/Jian11323/StarQuake)"
@@ -80,7 +79,6 @@ def parse_cfg(text: str) -> dict[str, Any]:
         "typhoon_enabled": True,
         "map_wx_enabled": True,
         "weather_enabled": True,
-        "fssn_enabled": True,
         "jma_station": True,
         "snet": False,
         "kma_station": True,
@@ -126,8 +124,6 @@ def parse_cfg(text: str) -> dict[str, Any]:
                 cfg["map_wx_enabled"] = on
             elif section == "sources.weather":
                 cfg["weather_enabled"] = on
-            elif section == "sources.fssn":
-                cfg["fssn_enabled"] = on
 
         if section == "sources.stations":
             if key == "jma_enabled":
@@ -192,8 +188,6 @@ def parse_cfg(text: str) -> dict[str, Any]:
 
         if section == "sources.weather" and key == "ws_url":
             cfg["urls"]["weather_ws"] = unquote(val)
-        if section == "sources.fssn" and key == "ws_url":
-            cfg["urls"]["fssn_ws"] = unquote(val)
 
     return cfg
 
@@ -533,7 +527,6 @@ def main() -> int:
             "typhoon_enabled",
             "map_wx_enabled",
             "weather_enabled",
-            "fssn_enabled",
             "jma_station",
             "kma_station",
             "snet",
@@ -614,8 +607,6 @@ def main() -> int:
             ws_jobs.append(("jian_all", u["jian_ws"], ["ping"], key))
         if cfg.get("weather_enabled", True):
             ws_jobs.append(("weather", u["weather_ws"], ["ping"], key))
-        if cfg.get("fssn_enabled", True):
-            ws_jobs.append(("fssn", u["fssn_ws"], [], None))
         if cfg["jma_station"]:
             ws_jobs.append(("kmoni", u["kmoni_ws"], [], None))
         if cfg["kma_station"]:

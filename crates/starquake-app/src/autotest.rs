@@ -319,7 +319,6 @@ fn check_config_inventory(resource_root: &Path, cfg: &AppConfig) -> Result<Strin
         ("sources.jian.enabled", cfg.sources.jian.enabled),
         ("sources.wolfx.enabled", cfg.sources.wolfx.enabled),
         ("sources.p2pquake.enabled", cfg.sources.p2pquake.enabled),
-        ("sources.fssn.enabled", cfg.sources.fssn.enabled),
         ("sources.map_wx.enabled", cfg.sources.map_wx.enabled),
         ("update.check_on_startup", cfg.update.check_on_startup),
         ("log.enabled", cfg.log.enabled),

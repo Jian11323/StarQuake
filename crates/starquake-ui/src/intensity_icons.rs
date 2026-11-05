@@ -111,7 +111,7 @@ impl IntensityIcons {
                 }
             }
             IntensityKind::CnIntensity => {
-                // 0 = 上游无烈度（如 FSSN）；禁止钳成 1 显示假「烈度1」图标
+                // 0 = 上游无烈度；禁止钳成 1 显示假「烈度1」图标
                 if level == 0 {
                     return None;
                 }

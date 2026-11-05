@@ -1,6 +1,6 @@
 //! 融合历史 FE 地名修正：`fe_fix.txt` 1° 格网 + `fe_fix_region_data.json` 外包矩形。
 //!
-//! 规则对齐融合历史 `TranslateLocation`：JMA / CWA / HKO / CENC / FSSN / 国内地方局保留原文；
+//! 规则对齐融合历史 `TranslateLocation`：JMA / CWA / HKO / CENC / 国内地方局保留原文；
 //! 其余源在有效经纬时用格网（优先）再回退矩形。
 
 use serde::Deserialize;
@@ -97,7 +97,7 @@ pub fn fix_place(agency: &str, place: &str, lat: f64, lon: f64) -> String {
 fn keeps_original(src: &str) -> bool {
     matches!(
         src,
-        "JMA" | "CWA" | "HKO" | "BEIJING" | "YUNNAN" | "NINGXIA" | "CENC" | "CEA-PR" | "FSSN"
+        "JMA" | "CWA" | "HKO" | "BEIJING" | "YUNNAN" | "NINGXIA" | "CENC" | "CEA-PR"
     )
 }
 
@@ -126,9 +126,6 @@ fn source_key(agency: &str) -> String {
     }
     if a.contains("NINGXIA") {
         return "NINGXIA".into();
-    }
-    if a.contains("FSSN") {
-        return "FSSN".into();
     }
     a
 }

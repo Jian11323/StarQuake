@@ -152,10 +152,6 @@ cwa_eew = false
 cenc_eqlist = true
 jma_eqlist = true
 
-[sources.fssn]
-enabled = true
-ws_url = "wss://fssn-api.fanstudio.tech/fssn"
-
 [sources.p2pquake]
 enabled = true
 # HTTP 轮询间隔（秒）；最低 1，默认 1.5
@@ -178,7 +174,6 @@ other = false
 
 [filters.record_mag]
 cenc = 0.0
-fssn = 0.0
 usgs = 0.0
 cwa = 0.0
 jma = 0.0

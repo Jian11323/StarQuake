@@ -1,4 +1,4 @@
-//! 情报网络：Jian / Wolfx / P2PQuake / FSSN / Pancakes → 归一化事件总线。
+//! 情报网络：Jian / Wolfx / P2PQuake / Pancakes → 归一化事件总线。
 
 pub mod adapter;
 pub mod bus;
@@ -59,7 +59,6 @@ pub enum SourceKind {
     Jian,
     Wolfx,
     P2pQuake,
-    Fssn,
     Pancakes,
 }
 
@@ -69,7 +68,6 @@ impl SourceKind {
             Self::Jian => "jian",
             Self::Wolfx => "wolfx",
             Self::P2pQuake => "p2pquake",
-            Self::Fssn => "fssn",
             Self::Pancakes => "pancakes",
         }
     }
@@ -93,7 +91,6 @@ pub fn spawn_hub_with_assets(
         jian_host = jian_endpoint::active_host(),
         wolfx = sources.wolfx.enabled,
         p2p = sources.p2pquake.enabled,
-        fssn = sources.fssn.enabled,
         pancakes = sources.pancakes.enabled,
         jma_st = sources.stations.jma_enabled,
         snet = sources.stations.snet_enabled,
@@ -111,7 +108,6 @@ pub fn spawn_hub_with_assets(
     tasks.extend(sources::jian::spawn(tx.clone(), jian_cfg.clone()));
     tasks.extend(sources::wolfx::spawn(tx.clone(), sources.wolfx.clone()));
     tasks.extend(sources::p2pquake::spawn(tx.clone(), sources.p2pquake.clone()));
-    tasks.extend(sources::fssn::spawn(tx.clone(), sources.fssn.clone()));
     tasks.extend(sources::pancakes::spawn(tx.clone(), sources.pancakes.clone()));
     tasks.extend(sources::stations::spawn(
         tx.clone(),

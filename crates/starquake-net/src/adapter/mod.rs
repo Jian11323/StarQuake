@@ -1,7 +1,6 @@
 //! 原始 JSON → core 模型；一源一解析模块。
 
 mod fields;
-mod fssn;
 mod jian;
 mod kmoni;
 mod p2p;
@@ -11,7 +10,6 @@ mod wolfx;
 #[cfg(test)]
 mod tests;
 
-pub use fssn::ingest_fssn_frame;
 pub use jian::ingest_jian_frame;
 pub use kmoni::{ingest_kma_station_frame, ingest_kmoni_frame, ingest_snet_frame, KmoniState};
 pub use p2p::ingest_p2p_items;

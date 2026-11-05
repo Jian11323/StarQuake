@@ -49,7 +49,7 @@ pub(crate) struct SidebarDrawCtx<'a> {
     pub icons: &'a IntensityIcons,
     pub weather_icons: &'a mut WeatherIconCache,
     pub show_volcano_icons: bool,
-    pub source_enabled: [bool; 5],
+    pub source_enabled: [bool; 4],
     pub detached: bool,
     pub weather_display_mode: &'a mut String,
     pub weather_location_filter: &'a mut String,
@@ -1724,7 +1724,6 @@ pub(crate) fn draw_sidebar(
                     ("Wolfx", snap.health_wolfx),
                     ("P2P", snap.health_p2p),
                     ("Pancakes", snap.health_pancakes),
-                    ("FSSN", snap.health_fssn),
                 ]
                 .into_iter()
                 .enumerate()
