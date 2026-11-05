@@ -1,8 +1,9 @@
 //! 行政区矢量底图（暗色矢量 / 亮色浅填）。
 //!
 //! 世界层：`geodata/kanameishi/medium.global.modified.topo.json`（精细，本身不含中日国界）。
-//! 区划层：中国优先 GQ（含藏南），日本优先要石/JMA（含北方四岛）；并由省级溶解出国级外轮廓。
-//! 低于 zoom 7.5 只画中日国级；达到后叠省级。平面 / 球体按投影分别加载。
+//! 区划层：中国优先 GQ（含藏南），日本优先要石/JMA（含北方四岛），美国用 GQ `us-albers`；
+//! 其余国外一级行政区用 Natural Earth admin-1；并由省级溶解出国级外轮廓。
+//! 低于 zoom 7.5 只画中日国级；达到后叠省级/州级。平面 / 球体按投影分别加载。
 //! 加载在后台线程分两阶段（世界 → 区划），主线程 `poll` 合并。
 
 use crate::globe::zoom_to_scroll;
@@ -606,16 +607,16 @@ impl VectorBasemap {
             self.paint_cache = None;
         }
 
-        // 平面：拖/缩时对满质 mesh 做缩放+平移；过紧会滚轮连缩反复重镶抽搐
+        // 平面：拖/缩时对满质 mesh 做缩放+平移；阈值放宽，避免拖远就重镶闪碎线
         let can_xform = self.paint_cache.as_ref().is_some_and(|c| {
             !view.mode.is_globe()
                 && !c.fly_lite
                 && c.interact_key == interact_key
-                && (c.build_zoom - view.zoom).abs() <= 2.2
+                && (c.build_zoom - view.zoom).abs() <= 3.0
         });
         if can_xform {
             if let Some(c) = self.paint_cache.as_mut() {
-                let shift_limit = rect.width().max(rect.height()) * 0.28;
+                let shift_limit = rect.width().max(rect.height()) * 0.55;
                 let pan_too_far = vector_flat_pan_delta(c.mesh_lon, c.mesh_lat, view)
                     .map(|(dx, dy)| dx.abs() > shift_limit || dy.abs() > shift_limit)
                     .unwrap_or(true);
@@ -688,6 +689,8 @@ impl VectorBasemap {
             }
         };
 
+        // 仅世界轮廓做 ±360 副本铺满低缩放；省/州界对齐 GQ：只画一份，
+        // 禁止跟副本循环（否则美加州界会被解缠拆成散碎短线）。
         for k in -half_copies..=half_copies {
             let lon_shift = f64::from(k) * 360.0;
 
@@ -728,28 +731,28 @@ impl VectorBasemap {
                     true,
                 );
             }
-
-            // 要石世界层无中日国界：
-            // zoom < 7.5 → 只画国级外轮廓；zoom ≥ 7.5 → 叠省级（外轮廓由省界承担，避免双描）。
-            paint_cn_jp_admin_flat(
-                &mut shapes,
-                self,
-                view,
-                zoom,
-                regional_zoom,
-                interacting,
-                seg_bias,
-                q,
-                fill_land,
-                style,
-                min_lon + lon_shift,
-                min_lat,
-                max_lon + lon_shift,
-                max_lat,
-                max_jump_px,
-                lon_shift,
-            );
         }
+
+        // 要石世界层无中日国界：
+        // zoom < 7.5 → 只画国级外轮廓；zoom ≥ 7.5 → 叠省级/州级（对齐 GQ 区划描边）。
+        paint_cn_jp_admin_flat(
+            &mut shapes,
+            self,
+            view,
+            zoom,
+            regional_zoom,
+            interacting,
+            seg_bias,
+            q,
+            fill_land,
+            style,
+            min_lon,
+            min_lat,
+            max_lon,
+            max_lat,
+            max_jump_px,
+            0.0,
+        );
 
         let mesh = if interacting {
             bake_shapes_mesh_lite(ppp, shapes)
@@ -1024,14 +1027,15 @@ fn paint_cn_jp_admin_flat(
     let rings = basemap
         .regional
         .pick(zoom, ZOOM_REGIONAL_MED, ZOOM_REGIONAL_FINE);
+    // 省/州界勿过度抽稀（NE 仍偏稀；GQ 美国已较密，仍忌飞跃抽成碎线）
     let min_seg = if interacting {
-        3.2_f32 * seg_bias
+        1.8_f32 * seg_bias
     } else if zoom < ZOOM_REGIONAL_MED {
-        2.0_f32 * seg_bias
+        1.15_f32 * seg_bias
     } else if zoom < ZOOM_REGIONAL_FINE {
-        1.4_f32 * seg_bias
+        0.9_f32 * seg_bias
     } else {
-        1.0_f32 * seg_bias
+        0.7_f32 * seg_bias
     };
     let stroke = Stroke::new(
         if interacting || zoom < ZOOM_REGIONAL_MED {
@@ -1428,6 +1432,8 @@ fn paint_rings(
             lon_shift,
             omit_zangnan,
         );
+        // 对齐 GQ：完整外环闭合描边（解缠拆段的碎片保持 open，避免错连）
+        let close_ok = segments.len() == 1;
         for pts in segments {
             if pts.len() < 2 {
                 continue;
@@ -1435,7 +1441,7 @@ fn paint_rings(
             shapes.push(
                 egui::epaint::PathShape {
                     points: pts,
-                    closed: false,
+                    closed: close_ok,
                     fill: Color32::TRANSPARENT,
                     stroke: egui::epaint::PathStroke::new(stroke.width, stroke.color),
                 }
@@ -1959,23 +1965,52 @@ fn load_regional_rings(dir: &Path) -> (Vec<RingSet>, usize, usize) {
     let jp = load_jp_pref_rings(dir, &mut files, &mut skipped);
     regional_fine.extend(jp);
 
-    // 国外省/州（Natural Earth admin-1 精简包；不含中日）
-    let admin1 = dir.join("admin1").join("states_provinces.geojson");
-    if let Some(rings) = try_load_rings(
-        &admin1,
+    // 美国州界：对齐 GlobalQuake Special `us-albers`（密于 NE 50m）
+    let gq_us = globalquake_dir(dir).join("us-albers.geojson");
+    let us_from_gq = if let Some(rings) = try_load_rings(
+        &gq_us,
         &mut files,
         &mut skipped,
-        "admin1 states/provinces",
+        "GlobalQuake us-albers",
     ) {
-        info!(path = %admin1.display(), rings = rings.len(), "foreign admin1 loaded");
+        info!(path = %gq_us.display(), rings = rings.len(), "GQ US states loaded");
         regional_fine.extend(rings);
+        true
+    } else {
+        false
+    };
+
+    // 国外省/州其余国家（Natural Earth admin-1；已不含中日；有 GQ 美国时再跳过 USA）
+    let admin1 = dir.join("admin1").join("states_provinces.geojson");
+    if admin1.is_file() {
+        files += 1;
+        let loaded = if us_from_gq {
+            load_file_excluding_adm0(&admin1, &["USA"])
+        } else {
+            load_file(&admin1)
+        };
+        match loaded {
+            Ok(rings) => {
+                info!(
+                    path = %admin1.display(),
+                    rings = rings.len(),
+                    skip_usa = us_from_gq,
+                    "foreign admin1 loaded"
+                );
+                regional_fine.extend(rings);
+            }
+            Err(e) => {
+                skipped += 1;
+                warn!(path = %admin1.display(), error = %e, "国外 admin1 加载失败");
+            }
+        }
     }
 
     info!(
         total = regional_fine.len(),
         files,
         skipped,
-        "regional admin rings loaded (CN/JP + foreign admin1)"
+        "regional admin rings loaded (CN/JP + GQ US + foreign admin1)"
     );
     (regional_fine, files, skipped)
 }
@@ -2387,21 +2422,56 @@ fn feature_name(props: &Option<serde_json::Value>) -> Option<String> {
     None
 }
 
+fn feature_adm0_a3(props: &Option<serde_json::Value>) -> Option<String> {
+    let props = props.as_ref()?;
+    for key in ["adm0_a3", "ADM0_A3", "gu_a3", "iso_a3"] {
+        if let Some(s) = props.get(key).and_then(|v| v.as_str()) {
+            if !s.is_empty() {
+                return Some(s.to_ascii_uppercase());
+            }
+        }
+    }
+    None
+}
+
 fn load_file(path: &Path) -> Result<Vec<RingSet>, String> {
     load_file_excluding(path, &[])
 }
 
 /// 对齐 GQ `parseGeoJson(..., remove)`：按名称跳过要素（如近景过滤 China/Japan）。
 fn load_file_excluding(path: &Path, exclude: &[&str]) -> Result<Vec<RingSet>, String> {
+    load_geojson_features(path, exclude, &[])
+}
+
+/// 按 `adm0_a3` 跳过国家（例如已用 GQ us-albers 时排除 NE 的 USA）。
+fn load_file_excluding_adm0(path: &Path, exclude_adm0: &[&str]) -> Result<Vec<RingSet>, String> {
+    load_geojson_features(path, &[], exclude_adm0)
+}
+
+fn load_geojson_features(
+    path: &Path,
+    exclude_names: &[&str],
+    exclude_adm0: &[&str],
+) -> Result<Vec<RingSet>, String> {
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let fc: FeatureCollection = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for feat in fc.features {
-        if !exclude.is_empty() {
+        if !exclude_names.is_empty() {
             if let Some(name) = feature_name(&feat.properties) {
-                if exclude
+                if exclude_names
                     .iter()
                     .any(|e| name.eq_ignore_ascii_case(e) || name == *e)
+                {
+                    continue;
+                }
+            }
+        }
+        if !exclude_adm0.is_empty() {
+            if let Some(a3) = feature_adm0_a3(&feat.properties) {
+                if exclude_adm0
+                    .iter()
+                    .any(|e| a3.eq_ignore_ascii_case(e))
                 {
                     continue;
                 }

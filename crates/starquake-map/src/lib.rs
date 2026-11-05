@@ -640,9 +640,9 @@ impl MapViewport {
                 }
             }
         } else {
-            // 飞跃/拖图：lite + delta（平面逐帧仿射，避免每帧重镶卡顿）
-            // S 波跟焦：只走 still 变换；此处仅在无 still 时满质建一帧，禁止 fly_lite（会闪线）
-            let vector_lite = flying || dragging;
+            // 拖图/滚轮：满质 mesh + 仿射跟手（lite 抽稀会把省州界拆成碎段）
+            // 仅飞跃用 lite；S 波跟焦优先走上方 still 变换
+            let vector_lite = flying;
             let vector_mesh_delta = !globe && (dragging || flying);
             if want_vector {
                 self.vector.paint(
@@ -902,8 +902,8 @@ fn still_static_key(
 
 /// 跟焦缩放允许的视角漂移：过大则需重裁剪，否则边缘会空白。
 fn still_view_drift_ok(build_lon: f64, build_lat: f64, build_zoom: f64, view: &ViewCtx) -> bool {
-    // 拖图/滚轮：允许约 2.5 级缩放差再重裁，避免滚轮连续缩放时反复重镶抽搐
-    if (view.zoom - build_zoom).abs() > 2.5 {
+    // 拖图/滚轮：放宽到约 3 级缩放、12° 平移后再重裁，减少拖远即退回重建
+    if (view.zoom - build_zoom).abs() > 3.0 {
         return false;
     }
     let dlat = (view.center_lat - build_lat).abs();
@@ -911,7 +911,7 @@ fn still_view_drift_ok(build_lon: f64, build_lat: f64, build_zoom: f64, view: &V
     if dlon > 180.0 {
         dlon = 360.0 - dlon;
     }
-    dlat <= 6.0 && dlon <= 6.0
+    dlat <= 12.0 && dlon <= 12.0
 }
 
 /// 平面仍图层：按 zoom 差缩放 + 中心平移，供 S 波线性跟焦复用。

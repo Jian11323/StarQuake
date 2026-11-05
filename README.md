@@ -12,7 +12,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" /></a>
   <img src="https://img.shields.io/badge/Rust-1.70%2B-orange.svg" alt="Rust" />
   <img src="https://img.shields.io/badge/Platform-Windows-0078D6.svg" alt="Windows" />
-  <img src="https://img.shields.io/badge/Release-Beta_2.3.4-informational.svg" alt="Beta 2.3.4" />
+  <img src="https://img.shields.io/badge/Release-Beta_2.6.0-informational.svg" alt="Beta 2.6.0" />
 </p>
 
 <p align="center">
@@ -90,7 +90,8 @@
 - 中国台湾地图：[GeoJSON.cn](https://geojson.cn/)
 - 日本地图：[日本气象厅](https://www.data.jma.go.jp/developer/gis.html)（注意钓鱼岛地区处理）
 - 世界地图：[GeoJSON Maps of the globe](https://geojson-maps.kyd.au/)（注意甄别争议地区）
-- 国外一级行政区（州/省）：[Natural Earth](https://www.naturalearthdata.com/) admin-1（公有领域）
+- 美国州界：GlobalQuake Special us-albers
+- 国外一级行政区（州/省，不含美/中/日）：[Natural Earth](https://www.naturalearthdata.com/) admin-1（公有领域）
 - 近距走时表：[气象厅 JMA2001](https://www.data.jma.go.jp/eqev/data/bulletin/catalog/appendix/trtime/trt_j.html)
 - 远距走时表：IASPEI ak135
 - SREV 音效（JMA）：[scratch-realtime-earthquake-viewer-page](https://github.com/kotoho7/scratch-realtime-earthquake-viewer-page)

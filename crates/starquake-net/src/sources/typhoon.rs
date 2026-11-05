@@ -69,7 +69,7 @@ pub fn spawn(tx: NetTx, cfg: TyphoonSourceConfig) -> Vec<JoinHandle<()>> {
                 }
                 Err(e) => warn!("typhoon fetch: {e}"),
             }
-            crate::jian_endpoint::note_connect_result(ok);
+            // 不计入 Jian 主/备自动切换：切换仅看 /all 等 WebSocket 网络失败
             emit_health(
                 &tx,
                 "typhoon",

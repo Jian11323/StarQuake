@@ -1,22 +1,22 @@
 {
-  "latest_version": "Beta 2.5.2",
-  "display_version": "Beta 2.5.2",
+  "latest_version": "Beta 2.6.0",
+  "display_version": "Beta 2.6.0",
   "min_supported_version": "2.0.0",
   "channel": "beta",
-  "notes": "Beta 2.5.2：1、备服务器连接与鉴权稳定性；2、服务器选择相关体验调整。",
+  "notes": "Beta 2.6.0：1、新增预警烈度/震度分布与警报地区绘制；2、移除 FSSN 数据源与全球断层图层；3、调整部分设置项与界面布局；4、增加国外一级行政区划；5、初步接入本地震源推算（开发中，暂不启用）；6、完善 NowQuake 烈度速报（地图绘制）；7、速报列表排序与默认数据源调整；8、Jian 主备切换与鉴权稳定性增强；9、跟焦/拖图流畅度与矢量底图稳定性优化。",
   "installer": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.2/StarQuake_Beta_2.5.2_setup.exe",
-    "sha256": "1841e46a464cbfe49404eef0be663a21acdd1242b93d5f7f4715afde963315e6",
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.6.0/StarQuake_Beta_2.6.0_setup.exe",
+    "sha256": "",
     "user_interface": "progress"
   },
   "zip": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.2/StarQuake_Beta_2.5.2_portable.zip",
-    "sha256": "1476903a94619aab22d77a078e87bb1ddffda62222d3b321dae4e7a97278ee1a"
-  },
-  "linux": {
-    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.5.2/StarQuake_Beta_2.5.2_linux_x86_64.tar.gz",
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.6.0/StarQuake_Beta_2.6.0_portable.zip",
     "sha256": ""
   },
-  "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.5.2",
-  "html_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.5.2"
+  "linux": {
+    "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.6.0/StarQuake_Beta_2.6.0_linux_x86_64.tar.gz",
+    "sha256": ""
+  },
+  "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.6.0",
+  "html_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.6.0"
 }

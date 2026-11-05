@@ -73,6 +73,8 @@ where
     loop {
         emit_health(&tx, opts.source, HealthStatus::Fluctuating);
 
+        // 换票前也能判断是否 Jian API（opts.url 多为配置里的主站地址）
+        let jian_cfg = url_is_jian_api(&opts.url);
         let url = if let Some(ref resolve) = opts.resolve_url {
             let resolve = Arc::clone(resolve);
             match tokio::task::spawn_blocking(move || resolve()).await {
@@ -83,6 +85,10 @@ where
                         error = %redact_secrets(&e),
                         "resolve url failed"
                     );
+                    // 换票 / 拼 URL 失败：计为网络侧失败（对齐滚动字幕）
+                    if jian_cfg {
+                        crate::jian_endpoint::note_connect_result(false);
+                    }
                     emit_health(&tx, opts.source, HealthStatus::Abnormal);
                     backoff = backoff.max(15);
                     let jitter_ms = backoff.saturating_mul(137) % 800;
@@ -92,6 +98,9 @@ where
                 }
                 Err(e) => {
                     warn!(source = opts.source, "resolve url join: {e}");
+                    if jian_cfg {
+                        crate::jian_endpoint::note_connect_result(false);
+                    }
                     emit_health(&tx, opts.source, HealthStatus::Abnormal);
                     sleep(Duration::from_secs(backoff.max(5))).await;
                     backoff = (backoff * 2).min(opts.backoff_max_secs.max(60));
@@ -108,7 +117,7 @@ where
             "connecting"
         );
 
-        let jian_api = url_is_jian_api(&url);
+        let jian_api = url_is_jian_api(&url) || jian_cfg;
         match connect_async(&url).await {
             Ok((ws, _)) => {
                 if jian_api {
@@ -124,6 +133,7 @@ where
                 }
                 let mut rate_limited = false;
                 let mut auth_failed = false;
+                let mut network_drop = false;
                 let use_periodic =
                     opts.periodic_secs > 0 && !opts.periodic_texts.is_empty();
                 let mut tick = if use_periodic {
@@ -209,6 +219,7 @@ where
                                 }
                                 Some(Ok(Message::Close(_))) => {
                                     warn!(source = opts.source, "server closed");
+                                    network_drop = true;
                                     break;
                                 }
                                 Some(Err(e)) => {
@@ -217,9 +228,13 @@ where
                                         "ws error: {}",
                                         redact_secrets(&e.to_string())
                                     );
+                                    network_drop = true;
                                     break;
                                 }
-                                None => break,
+                                None => {
+                                    network_drop = true;
+                                    break;
+                                }
                                 _ => {}
                             }
                         }
@@ -257,6 +272,10 @@ where
                 if auth_failed {
                     // 官方：累计约 10 次无鉴权掐断会临时封 IP；鉴权失败后拉长退避并换票
                     backoff = backoff.max(20);
+                }
+                // 鉴权/超限属业务拒绝，不翻主备；真正网络断开才计入
+                if jian_api && network_drop && !rate_limited && !auth_failed {
+                    crate::jian_endpoint::note_connect_result(false);
                 }
                 emit_health(&tx, opts.source, HealthStatus::Fluctuating);
             }

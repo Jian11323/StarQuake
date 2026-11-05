@@ -22,6 +22,7 @@
 | `kanameishi/jp.pref.topo.json` | 日本都道府县（JMA；优先，含北方四岛） |
 | `globalquake/jp-prefectures.geojson` | 日本都道府县回退（无北方四岛） |
 | 要石 `cn.province` | 中国省级回退 |
-| `admin1/states_provinces.geojson` | 国外一级行政区（美加澳等；Natural Earth 50m 精简） |
+| globalquake/us-albers.geojson | 美国州界（GlobalQuake Special） |
+| dmin1/states_provinces.geojson | 国外一级行政区（加澳等；Natural Earth 50m；不含美/中/日） |
 
 钓鱼岛由中国台湾省界与内置点状表达；日本区划中落入该范围的小岛环在加载时剥除。
