@@ -59,6 +59,14 @@ pub fn cn_intensity_rgb(level: u8) -> Rgb {
     }
 }
 
+/// 中国烈度圆标文字色（对齐 EEWCN `getIntTextColors`）。
+pub fn cn_intensity_text_rgb(level: u8) -> Rgb {
+    match level.clamp(0, 12) {
+        0 | 1 | 6 | 7 => Rgb::new(0, 0, 0),
+        _ => Rgb::new(255, 255, 255),
+    }
+}
+
 pub fn color_for(kind: IntensityKind, level: u8) -> Rgb {
     match kind {
         IntensityKind::JmaShindo => jma_shindo_rgb(level),

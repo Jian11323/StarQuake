@@ -153,7 +153,7 @@ pub struct UiConfig {
     /// 气象预警地名筛选（侧栏输入，空为不过滤）
     #[serde(default)]
     pub weather_location_filter: String,
-    /// 已下线：烈度速报不再侧栏/地图展示；保留字段兼容旧 settings.json
+    /// 兼容旧 settings.json；地图绘制现由 `sources.cenc_int.enabled` 控制
     #[serde(default = "default_false")]
     pub show_cenc_int: bool,
     /// 地图绘制台风路径 / 风圈 / 预报

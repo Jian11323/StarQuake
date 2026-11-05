@@ -5,10 +5,10 @@ use crate::marker_icons::MarkerIcons;
 use crate::projection::{self, ViewCtx};
 use egui::epaint::{Mesh, Vertex};
 use egui::{Color32, Pos2, Rect, Stroke, TextureHandle, Ui, Vec2};
-use starquake_core::palette::color_for;
+use starquake_core::palette::{cn_intensity_rgb, cn_intensity_text_rgb, color_for};
 use starquake_core::{
-    cn_intensity_round, intensity_rings, CencIntEvent, EewReport, EqRecord, StationSample,
-    VolcanoNotice, WeatherAlert, LocalHypoEstimate,
+    cn_intensity_round, cn_intensity_text, intensity_rings, CencIntEvent, EewReport, EqRecord,
+    LocalHypoEstimate, StationSample, VolcanoNotice, WeatherAlert,
 };
 use starquake_travel::{max_s_wave_spread_km, TravelEngine, Wave};
 use std::sync::Once;
@@ -888,11 +888,18 @@ fn weather_level_color(icon_type: &str) -> Color32 {
     }
 }
 
-/// 烈度速报：震中 + 计测台站点（仅传入当前选中事件）。
-pub fn paint_cenc_int_event(ui: &mut Ui, view: &ViewCtx, event: &CencIntEvent, icons: Option<&MarkerIcons>) {
+/// 烈度速报（NowQuake）：震中叉标 + 计测台站色圆罗马数字（对齐 eewcn `CencIntensityStations`）。
+pub fn paint_cenc_int_event(
+    ui: &mut Ui,
+    view: &ViewCtx,
+    event: &CencIntEvent,
+    icons: Option<&MarkerIcons>,
+) {
     let rect = view.rect;
     let painter = ui.painter_at(rect);
-    let pad = 20.0_f32;
+    let pad = 36.0_f32;
+    let hover = ui.input(|i| i.pointer.hover_pos());
+
     if let Some(epi) = view.project(event.longitude, event.latitude) {
         if epi.x >= rect.left() - pad
             && epi.x <= rect.right() + pad
@@ -902,14 +909,31 @@ pub fn paint_cenc_int_event(ui: &mut Ui, view: &ViewCtx, event: &CencIntEvent, i
             if let Some(tex) = icons.and_then(|i| i.cross()) {
                 let size = 22.0_f32;
                 let r = Rect::from_center_size(epi, Vec2::splat(size));
-                painter.image(tex.id(), r, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                painter.image(
+                    tex.id(),
+                    r,
+                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    Color32::WHITE,
+                );
             } else {
                 painter.circle_filled(epi, 5.0, MARKER_RED);
                 painter.circle_stroke(epi, 5.0, Stroke::new(1.5_f32, Color32::WHITE));
             }
         }
     }
-    for s in &event.stations {
+
+    // 低烈度先画、高烈度后画（压在上层），对齐 eewcn `z: level`
+    let mut order: Vec<usize> = (0..event.stations.len()).collect();
+    order.sort_by_key(|&i| {
+        event.stations[i]
+            .intensity
+            .map(cn_intensity_round)
+            .unwrap_or(0)
+    });
+
+    let mut tip: Option<(Pos2, String)> = None;
+    for &i in &order {
+        let s = &event.stations[i];
         let Some(p) = view.project(s.longitude, s.latitude) else {
             continue;
         };
@@ -921,14 +945,81 @@ pub fn paint_cenc_int_event(ui: &mut Ui, view: &ViewCtx, event: &CencIntEvent, i
             continue;
         }
         let level = s.intensity.map(cn_intensity_round).unwrap_or(0);
+        let size = (30.0 + (level as f32).min(8.0)) as f32;
+        let r = size * 0.5;
         let rgb = if level >= 1 {
-            starquake_core::palette::cn_intensity_rgb(level)
+            cn_intensity_rgb(level)
         } else {
             starquake_core::palette::Rgb::new(0x88, 0x88, 0x88)
         };
         let fill = Color32::from_rgb(rgb.r, rgb.g, rgb.b);
-        let r = 3.2_f32;
+        let t_rgb = cn_intensity_text_rgb(level);
+        let text_c = Color32::from_rgb(t_rgb.r, t_rgb.g, t_rgb.b);
         painter.circle_filled(p, r, fill);
+        painter.circle_stroke(p, r, Stroke::new(2.0_f32, Color32::WHITE));
+        if level >= 1 {
+            let roman = cn_intensity_text(level);
+            let font_sz = (size * 0.52).max(14.0);
+            painter.text(
+                p,
+                egui::Align2::CENTER_CENTER,
+                roman,
+                egui::FontId::proportional(font_sz),
+                text_c,
+            );
+        }
+        if let Some(hp) = hover {
+            if p.distance(hp) <= r + 2.0 {
+                let code = if !s.name.is_empty() {
+                    s.name.replace('_', ".")
+                } else if !s.place.is_empty() {
+                    s.place.clone()
+                } else {
+                    "—".into()
+                };
+                let mut lines = vec![code];
+                if let Some(v) = s.intensity {
+                    lines.push(format!("烈度 {v:.1}"));
+                }
+                if let Some(v) = s.pga {
+                    lines.push(format!("PGA {v} gal"));
+                }
+                if let Some(v) = s.pgv {
+                    lines.push(format!("PGV {v} kine"));
+                }
+                tip = Some((p, lines.join("\n")));
+            }
+        }
+    }
+
+    if let Some((anchor, text)) = tip {
+        let galley = painter.layout_no_wrap(
+            text,
+            egui::FontId::proportional(12.0),
+            Color32::WHITE,
+        );
+        let pad_t = Vec2::new(8.0, 6.0);
+        let size = galley.size() + pad_t * 2.0;
+        let mut tip_pos = anchor + Vec2::new(10.0, -size.y - 8.0);
+        if tip_pos.x + size.x > rect.right() - 4.0 {
+            tip_pos.x = anchor.x - size.x - 10.0;
+        }
+        if tip_pos.y < rect.top() + 4.0 {
+            tip_pos.y = anchor.y + 12.0;
+        }
+        let tip_rect = Rect::from_min_size(tip_pos, size);
+        painter.rect_filled(
+            tip_rect,
+            6.0,
+            Color32::from_rgba_unmultiplied(20, 24, 32, 230),
+        );
+        painter.rect_stroke(
+            tip_rect,
+            6.0,
+            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 60)),
+            egui::StrokeKind::Outside,
+        );
+        painter.galley(tip_rect.min + pad_t, galley, Color32::WHITE);
     }
 }
 

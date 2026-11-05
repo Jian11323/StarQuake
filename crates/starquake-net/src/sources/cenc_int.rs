@@ -51,7 +51,33 @@ pub fn spawn(tx: NetTx, cfg: CencIntSourceConfig) -> Vec<JoinHandle<()>> {
                 Ok(body) => match parse_list(&body) {
                     Ok(list) => {
                         if !list.is_empty() {
-                            let _ = tx.send(NetEvent::CencIntList(list));
+                            let _ = tx.send(NetEvent::CencIntList(list.clone()));
+                            // 对齐 eewcn：list 往往无 stations，再拉最新一条 /event/{id}
+                            if let Some(id) = list.first().map(|e| e.eq_id.clone()) {
+                                let event_url = format!("{http_base}/event/{id}");
+                                match client.get(&event_url).send().await {
+                                    Ok(er) if er.status().is_success() => {
+                                        match er.bytes().await {
+                                            Ok(eb) => match serde_json::from_slice::<Value>(&eb)
+                                                .ok()
+                                                .and_then(|v| parse_event(&v))
+                                            {
+                                                Some(ev) => {
+                                                    let _ = tx.send(NetEvent::CencInt(ev));
+                                                }
+                                                None => {
+                                                    warn!("cenc_int event parse empty {id}");
+                                                }
+                                            },
+                                            Err(e) => warn!("cenc_int event body: {e}"),
+                                        }
+                                    }
+                                    Ok(er) => {
+                                        warn!(status = %er.status(), id = %id, "cenc_int event http");
+                                    }
+                                    Err(e) => warn!("cenc_int event fetch: {e}"),
+                                }
+                            }
                         }
                         emit_health(&tx, "cenc_int", HealthStatus::Normal);
                     }

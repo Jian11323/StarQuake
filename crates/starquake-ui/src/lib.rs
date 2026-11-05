@@ -26,8 +26,9 @@ use starquake_core::{
 use weather_icons::WeatherIconCache;
 use starquake_core::palette::{cn_intensity_rgb, jma_shindo_rgb};
 use starquake_map::{
-    radius_km_screen_px, zoom_to_fit_radius_for_mode, zoom_to_fit_radius_km, BasemapLoadState, BasemapMode, MapUiResult, MapViewport,
-    ProjectionMode, TyphoonHoverHit, VectorStyle, OCEAN,
+    fit_events, radius_km_screen_px, zoom_to_fit_radius_for_mode, zoom_to_fit_radius_km,
+    BasemapLoadState, BasemapMode, MapUiResult, MapViewport, ProjectionMode, TyphoonHoverHit,
+    VectorStyle, OCEAN,
 };
 use starquake_travel::{max_s_wave_spread_km, s_wave_still_spreading_to, TravelEngine, Wave};
 use std::collections::HashMap;
@@ -118,6 +119,8 @@ pub struct MainShell {
     weather_card_index: usize,
     /// 气象卡片上次自动轮播时刻
     weather_card_rotated_at: Option<std::time::Instant>,
+    /// 已跟焦过的 NowQuake 烈度速报 eq_id（同事件热更新不重复跳）
+    cenc_int_focused_eq_id: String,
 }
 
 impl Default for MainShell {
@@ -142,6 +145,7 @@ impl Default for MainShell {
             sidebar_float_geom_applied: false,
             weather_card_index: 0,
             weather_card_rotated_at: None,
+            cenc_int_focused_eq_id: String::new(),
         }
     }
 }
@@ -670,6 +674,38 @@ impl MainShell {
                         starquake_map::request_repaint_after_capped(ctx, follow_ms);
                     }
                 }
+                // NowQuake 烈度速报：仅最新一条画在地图上（对齐 eewcn，不走侧栏列表）
+                let cenc_for_map = if cfg.sources.cenc_int.enabled {
+                    snap.cenc_int.first()
+                } else {
+                    None
+                };
+                if paint_map {
+                    if let Some(ev) = cenc_for_map {
+                        if !ev.eq_id.is_empty()
+                            && ev.eq_id != self.cenc_int_focused_eq_id
+                            && !self.map.is_flying()
+                            && !self.map.user_camera_override
+                        {
+                            let mut pts: Vec<(f64, f64, f64)> = Vec::new();
+                            if ev.latitude.abs() > 0.01 || ev.longitude.abs() > 0.01 {
+                                pts.push((ev.longitude, ev.latitude, 25.0));
+                            }
+                            for s in &ev.stations {
+                                pts.push((s.longitude, s.latitude, 8.0));
+                            }
+                            if let Some((lon, lat, z)) =
+                                fit_events(&pts, map_rect.width(), map_rect.height())
+                            {
+                                let z = z.clamp(5.0, 8.0);
+                                self.map.fly_to_centered(lon, lat, Some(z), 0.85);
+                                self.cenc_int_focused_eq_id = ev.eq_id.clone();
+                            }
+                        }
+                    } else if !self.cenc_int_focused_eq_id.is_empty() {
+                        self.cenc_int_focused_eq_id.clear();
+                    }
+                }
                 if !paint_map {
                     let _ = ui.allocate_painter(ui.available_size(), egui::Sense::hover());
                 } else {
@@ -693,7 +729,7 @@ impl MainShell {
                     } else {
                         None
                     },
-                    None,
+                    cenc_for_map,
                     if show_typhoons_map {
                         snap.typhoons.as_slice()
                     } else {

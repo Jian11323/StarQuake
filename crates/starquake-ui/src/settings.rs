@@ -1561,6 +1561,16 @@ fn draw_sources(
                     .color(chrome().muted),
             );
         }
+        ui.add_space(10.0);
+        control_row(
+            ui,
+            "启用气象预警",
+            "Jian /weather 中央台预警",
+            "\u{26a1}",
+            |ui| {
+                toggle(ui, &mut draft.sources.weather.enabled);
+            },
+        );
         for fam in starquake_core::EEW_FILTER_FAMILIES {
             row_divider(ui);
             let mut on = jian_eew_flag(draft, *fam);
@@ -1681,18 +1691,6 @@ fn draw_sources(
                 );
             });
         }
-    });
-
-    section(ui, "气象预警", "\u{25ce}", |ui| {
-        control_row(
-            ui,
-            "启用气象预警",
-            "Jian /weather 中央台预警（需 at_/rt_）",
-            "\u{26a1}",
-            |ui| {
-                toggle(ui, &mut draft.sources.weather.enabled);
-            },
-        );
     });
 
     section(ui, "烈度速报", "\u{25ce}", |ui| {
