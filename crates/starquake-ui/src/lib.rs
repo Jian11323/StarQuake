@@ -157,11 +157,10 @@ impl MainShell {
         lat: f64,
         zoom: f64,
         projection: ProjectionMode,
-        show_faults: bool,
     ) {
         self.map.set_projection_mode(projection);
         self.map
-            .configure(basemap, tile_base, tile_source, geodata_dir, show_faults);
+            .configure(basemap, tile_base, tile_source, geodata_dir);
         self.map.center_lon = lon;
         self.map.center_lat = lat;
         self.map.zoom = zoom;
@@ -178,14 +177,13 @@ impl MainShell {
         tile_source: impl Into<String>,
         geodata_dir: Option<&Path>,
         projection: ProjectionMode,
-        show_faults: bool,
     ) {
         let lon = self.map.center_lon;
         let lat = self.map.center_lat;
         let zoom = self.map.zoom;
         self.map.set_projection_mode(projection);
         self.map
-            .configure(basemap, tile_base, tile_source, geodata_dir, show_faults);
+            .configure(basemap, tile_base, tile_source, geodata_dir);
         self.map.center_lon = lon;
         self.map.center_lat = lat;
         self.map.zoom = zoom;
@@ -706,9 +704,9 @@ impl MainShell {
                     snap.tsunami.as_ref(),
                     &radars,
                     snap.precip.as_ref(),
-                    cfg.ui.show_faults,
                     cfg.sources.map_wx.radar_opacity,
                     cfg.sources.map_wx.precip_opacity,
+                    cfg.ui.show_intensity_map,
                 );
                 }
                 // 预警条/海啸/右上测站台风/图例/时钟：相对 1280x720 等比，上限 1.0

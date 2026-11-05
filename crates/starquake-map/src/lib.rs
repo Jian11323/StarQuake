@@ -1,7 +1,6 @@
 //! 地图视口：GeoJSON 矢量底图（默认）/ 可选 XYZ 瓦片 + 走时表驱动 P/S 叠加层。
 
 mod camera;
-mod fault_lines;
 mod globe;
 mod marker_icons;
 mod overlay;
@@ -96,7 +95,6 @@ use starquake_core::{
 use starquake_travel::TravelEngine;
 use marker_icons::MarkerIcons;
 use projection::ViewCtx;
-use fault_lines::FaultLines;
 use weather_overlay::WeatherOverlay;
 use tsunami_coast::TsunamiCoast;
 use tile_cache::TileCache as Cache;
@@ -105,11 +103,11 @@ use std::sync::Arc;
 const ZOOM_MIN: f64 = 2.0;
 const ZOOM_MAX: f64 = 12.0;
 
-/// 视角静止时复用的底图/断层 mesh，波圈等动态层仍每帧绘制。
+/// 视角静止时复用的底图 mesh，波圈等动态层仍每帧绘制。
 /// S 波跟焦缩放时对已镶嵌层做平面缩放+平移，避免每帧全量重画导致顿挫。
 struct StillStatic {
     key: u64,
-    /// 不含中心/缩放的稳定键（质量、样式、是否断层等）
+    /// 不含中心/缩放的稳定键（质量、样式等）
     base_key: u64,
     /// 上次全量重建锚点（漂移过大才重裁）
     anchor_lon: f64,
@@ -133,7 +131,6 @@ pub struct MapViewport {
     cache: Cache,
     vector: VectorBasemap,
     tsunami_coast: TsunamiCoast,
-    faults: FaultLines,
     weather_overlay: WeatherOverlay,
     markers: MarkerIcons,
     flight: Option<CameraFlight>,
@@ -152,7 +149,7 @@ pub struct MapViewport {
     /// 非交互时合成底图层，避免波圈动画每帧再走一遍矢量路径
     still_static: Option<StillStatic>,
     show_terminator: bool,
-    /// S 波跟焦等程序改镜头：下一帧按「软交互」画断层（量化/变换，勿每帧全量）
+    /// S 波跟焦等程序改镜头：下一帧按「软交互」变换矢量（勿每帧全量重镶）
     follow_cam_anim: bool,
 }
 
@@ -172,7 +169,6 @@ impl Default for MapViewport {
             ),
             vector: VectorBasemap::default(),
             tsunami_coast: TsunamiCoast::default(),
-            faults: FaultLines::default(),
             weather_overlay: WeatherOverlay::default(),
             markers: MarkerIcons::default(),
             flight: None,
@@ -200,7 +196,6 @@ impl MapViewport {
         tile_base: impl Into<String>,
         tile_source: impl Into<String>,
         geodata_dir: Option<&std::path::Path>,
-        show_faults: bool,
     ) {
         self.basemap = basemap;
         self.cache
@@ -211,13 +206,6 @@ impl MapViewport {
                     .load_dir(dir, self.projection_mode.is_globe());
             }
             self.tsunami_coast.load_dir(dir);
-            if show_faults {
-                self.faults.load_dir(dir);
-            } else {
-                self.faults.clear();
-            }
-        } else if !show_faults {
-            self.faults.clear();
         }
     }
 
@@ -357,9 +345,8 @@ impl MapViewport {
             self.center_lat = elat;
             self.zoom = ez;
             self.flight = None;
-            // 落地：矢量/断层标记重建但保留旧 mesh，避免闪没与主线程同步全量
+            // 落地：矢量标记重建但保留旧 mesh，避免闪没与主线程同步全量
             self.vector.invalidate_paint_cache();
-            self.faults.invalidate_paint_cache();
             self.still_static = None;
             // 短冷却，尽快把 S 波跟焦接上
             self.post_flight_until =
@@ -496,17 +483,12 @@ impl MapViewport {
         tsunami: Option<&TsunamiInfo>,
         radars: &[&RadarFrame],
         precip: Option<&PrecipFrame>,
-        show_faults: bool,
         radar_opacity: f32,
         precip_opacity: f32,
+        show_intensity_map: bool,
     ) -> MapUiResult {
         if self.vector.poll() {
             request_repaint_after_capped(ui.ctx(), 50);
-        }
-        if self.faults.poll(ui.ctx()) {
-            // 后台断层刷完必须卸 still_static，否则会一直贴飞跃前的旧 mesh
-            self.still_static = None;
-            request_repaint_after_capped(ui.ctx(), 33);
         }
         self.markers.ensure(ui.ctx());
 
@@ -575,11 +557,10 @@ impl MapViewport {
             self.zoom,
             rect,
         );
-        // 手动拖/滚轮；S 波跟焦算软交互（断层走变换/量化，勿每帧全量）
+        // 手动拖/滚轮；S 波跟焦算软交互（勿每帧全量重镶）
         let soft_anim = self.follow_cam_anim;
         self.follow_cam_anim = false;
         let interacting = dragging || flying;
-        let fault_interact = interacting || soft_anim;
         let want_vector = globe || self.basemap.show_vector();
         let still_key = still_static_key(
             &view,
@@ -587,7 +568,6 @@ impl MapViewport {
             self.ocean_fill,
             self.vector_style,
             want_vector,
-            show_faults,
         );
         let still_base = still_static_base_key(
             &view,
@@ -595,7 +575,6 @@ impl MapViewport {
             self.ocean_fill,
             self.vector_style,
             want_vector,
-            show_faults,
         );
         // 平面：拖/滚轮/跟焦均可变换已缓存层（飞跃仍走完整路径）；漂移过大再重建
         let still_can_xform = !flying
@@ -644,7 +623,7 @@ impl MapViewport {
         }
 
         if still_hit {
-            // 仅贴矢量静止层（可缩放平移）；断层不进 still，避免省界 LOD 切换时连带闪没
+            // 仅贴矢量静止层（可缩放平移）
             let painter = ui.painter_at(rect);
             if let Some(s) = self.still_static.as_ref() {
                 for mesh in &s.layers {
@@ -652,10 +631,10 @@ impl MapViewport {
                 }
             }
         } else {
-            // 飞跃：lite 且禁止 mesh delta（每帧轻量重镶，避免共 Arc 深拷贝）
-            // S 波跟焦：lite + delta；静止满质走 still_static
-            let vector_lite = flying || soft_anim;
-            let vector_mesh_delta = soft_anim && !flying;
+            // 飞跃/拖图：lite + delta（平面逐帧仿射，避免每帧重镶卡顿；脱锚时自动回落重建）
+            // S 波跟焦：禁止 fly_lite（跟焦结束切满质会闪线）；优先 still 变换，否则满质 mesh delta
+            let vector_lite = flying || dragging;
+            let vector_mesh_delta = !globe && (soft_anim || dragging || flying);
             if want_vector {
                 self.vector.paint(
                     ui,
@@ -698,13 +677,6 @@ impl MapViewport {
             }
         }
 
-        // 断层始终单独绘制：不与省界/矢量 still 绑死；跟焦用 soft_anim 降重建频率
-        if show_faults {
-            let dark = self.ocean_fill.r() < 80;
-            self.faults
-                .paint(ui, &view, dark, self.paint_quality, fault_interact);
-        }
-
         // JMA 海啸：按沿岸预报区描边闪烁（不对中日外轮廓整圈描边）
         if let Some(t) = tsunami {
             if !t.cancelled && !t.grade.eq_ignore_ascii_case("Cancel") {
@@ -720,6 +692,20 @@ impl MapViewport {
         self.weather_overlay
             .paint_radars(ui, &view, radars, radar_opacity);
         WeatherOverlay::paint_precip(ui, &view, precip, precip_opacity);
+
+        // 预估烈度分布（同心圆；参考要石/RhythmQuake 衰减示意，非正式测定）
+        if show_intensity_map {
+            let focus = active.filter(|e| {
+                !e.is_cancel
+                    && !e.event_id.starts_with("station:")
+                    && !e.event_id.starts_with("record:")
+                    && e.magnitude >= 3.0
+                    && (e.latitude.abs() > 0.01 || e.longitude.abs() > 0.01)
+            });
+            if let Some(ev) = focus {
+                overlay::paint_intensity_distribution(ui, &view, ev);
+            }
+        }
 
         let mut typhoon_hover = None;
         {
@@ -871,7 +857,6 @@ fn still_static_base_key(
     ocean: Color32,
     style: VectorStyle,
     want_vector: bool,
-    show_faults: bool,
 ) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -886,7 +871,6 @@ fn still_static_base_key(
     style.world_border.to_array().hash(&mut h);
     style.admin_border.to_array().hash(&mut h);
     want_vector.hash(&mut h);
-    show_faults.hash(&mut h);
     // 不把省界阈值写进 base：跟焦连续缩放过 7.5 时勿每帧打爆矢量重建（漂移够大仍会重裁）
     h.finish()
 }
@@ -897,11 +881,10 @@ fn still_static_key(
     ocean: Color32,
     style: VectorStyle,
     want_vector: bool,
-    show_faults: bool,
 ) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    still_static_base_key(view, quality, ocean, style, want_vector, show_faults).hash(&mut h);
+    still_static_base_key(view, quality, ocean, style, want_vector).hash(&mut h);
     view.center_lon.to_bits().hash(&mut h);
     view.center_lat.to_bits().hash(&mut h);
     view.zoom.to_bits().hash(&mut h);
@@ -910,8 +893,8 @@ fn still_static_key(
 
 /// 跟焦缩放允许的视角漂移：过大则需重裁剪，否则边缘会空白。
 fn still_view_drift_ok(build_lon: f64, build_lat: f64, build_zoom: f64, view: &ViewCtx) -> bool {
-    // S 波慢缩常跨 1 级以上；过紧会每帧打爆矢量重绘导致自动缩放卡顿
-    if (view.zoom - build_zoom).abs() > 1.15 {
+    // S 波慢缩常跨 1～2 级；过紧会反复重镶导致线条抽搐与卡顿
+    if (view.zoom - build_zoom).abs() > 2.0 {
         return false;
     }
     let dlat = (view.center_lat - build_lat).abs();
@@ -919,7 +902,7 @@ fn still_view_drift_ok(build_lon: f64, build_lat: f64, build_zoom: f64, view: &V
     if dlon > 180.0 {
         dlon = 360.0 - dlon;
     }
-    dlat <= 3.5 && dlon <= 3.5
+    dlat <= 5.0 && dlon <= 5.0
 }
 
 /// 平面仍图层：按 zoom 差缩放 + 中心平移，供 S 波线性跟焦复用。

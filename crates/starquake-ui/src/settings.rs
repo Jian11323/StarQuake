@@ -317,6 +317,8 @@ pub struct SettingsSession {
     edge_tts_voices: Vec<(String, String)>,
     /// 官方通知列表（主循环每帧同步）
     pub official_notices: Vec<OfficialNoticeView>,
+    /// 「功能开发中」提示（墙钟截止时刻）
+    hypo_dev_toast_until: Option<std::time::Instant>,
 }
 
 impl Default for SettingsSession {
@@ -341,6 +343,7 @@ impl Default for SettingsSession {
             offline_tts_voices: Vec::new(),
             edge_tts_voices: Vec::new(),
             official_notices: Vec::new(),
+            hypo_dev_toast_until: None,
         }
     }
 }
@@ -1174,6 +1177,7 @@ fn draw_content(
     let offline_tts_voices = session.offline_tts_voices.clone();
     let edge_tts_voices = session.edge_tts_voices.clone();
     let official_notices = session.official_notices.clone();
+    let mut hypo_dev_toast_until = session.hypo_dev_toast_until.take();
     {
         let draft = session.draft.as_mut().unwrap();
         let login_key = &mut session.login_key;
@@ -1191,6 +1195,7 @@ fn draw_content(
                     &mut capture_view,
                     &mut perf_diag,
                     ip_locate_busy,
+                    &mut hypo_dev_toast_until,
                 ) {
                     *do_ip_locate = true;
                 }
@@ -1212,6 +1217,7 @@ fn draw_content(
     session.map_pick = map_pick;
     session.capture_view = capture_view;
     session.perf_diag = perf_diag;
+    session.hypo_dev_toast_until = hypo_dev_toast_until;
 }
 
 pub(super) fn section(ui: &mut Ui, title: &str, glyph: &str, add: impl FnOnce(&mut Ui)) {
@@ -1400,6 +1406,32 @@ pub(super) fn toggle(ui: &mut Ui, on: &mut bool) -> egui::Response {
         );
     }
     resp
+}
+
+/// 外观同关闭态开关；点击返回 true（不改变状态，供弹出「开发中」）。
+fn disabled_toggle(ui: &mut Ui) -> bool {
+    let size = Vec2::new(46.0, 28.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    ui.painter().rect_filled(rect, 14.0, chrome().ghost_bg);
+    ui.painter().circle_filled(
+        Pos2::new(rect.left() + 14.0, rect.center().y),
+        10.0,
+        Color32::from_rgba_unmultiplied(
+            chrome().text70.r(),
+            chrome().text70.g(),
+            chrome().text70.b(),
+            140,
+        ),
+    );
+    if resp.hovered() {
+        ui.painter().rect_stroke(
+            rect,
+            14.0,
+            Stroke::new(1.0_f32, chrome().border),
+            egui::StrokeKind::Outside,
+        );
+    }
+    resp.clicked()
 }
 
 pub(super) fn framed_edit(ui: &mut Ui, text: &mut String, width: f32) {
@@ -2106,6 +2138,7 @@ fn draw_general(
     capture_view: &mut bool,
     perf_diag: &mut Option<String>,
     ip_locate_busy: bool,
+    hypo_dev_toast_until: &mut Option<std::time::Instant>,
 ) -> bool {
     let mut want_ip = false;
     section(ui, "外观", "\u{25d0}", |ui| {
@@ -2235,11 +2268,34 @@ fn draw_general(
             toggle(ui, &mut draft.ui.show_weather);
         });
         row_divider(ui);
-        
-        control_row(ui, "本地震源推算", "用测站到时推算震源（紫色叉；非官方预警）", "\u{25ce}", |ui| {
-            toggle(ui, &mut draft.ui.show_local_hypo);
+        control_row(ui, "烈度分布图", "按震级/深度估算的烈度或震度同心圆（示意，非正式测定）", "\u{25ce}", |ui| {
+            toggle(ui, &mut draft.ui.show_intensity_map);
         });
-control_row(ui, "中国雷达", "中央台雷达图叠加（可与日/台同时开）", "\u{25ce}", |ui| {
+        row_divider(ui);
+        control_row(ui, "本地震源推算", "用测站到时推算震源（紫色叉；非官方预警）", "\u{25ce}", |ui| {
+            draft.ui.show_local_hypo = false;
+            if disabled_toggle(ui) {
+                *hypo_dev_toast_until =
+                    Some(std::time::Instant::now() + std::time::Duration::from_secs(2));
+            }
+        });
+        if hypo_dev_toast_until.is_some_and(|t| t > std::time::Instant::now()) {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.add_space(44.0);
+                ui.label(
+                    RichText::new(t("本功能正处于开发中"))
+                        .size(12.0)
+                        .color(chrome().status_warn),
+                );
+            });
+        } else {
+            *hypo_dev_toast_until = None;
+        }
+    });
+
+    section(ui, "雷达与气象叠加", "\u{25a3}", |ui| {
+        control_row(ui, "中国雷达", "中央台雷达图叠加（可与日/台同时开）", "\u{25ce}", |ui| {
             toggle(ui, &mut draft.sources.map_wx.radar_china);
         });
         row_divider(ui);
@@ -2251,7 +2307,7 @@ control_row(ui, "中国雷达", "中央台雷达图叠加（可与日/台同时�
             toggle(ui, &mut draft.sources.map_wx.radar_taiwan);
         });
         row_divider(ui);
-control_row(ui, "降水预报", "中国降水落区 24 / 48 / 72 小时；关则不拉取", "\u{25ce}", |ui| {
+        control_row(ui, "降水预报", "中国降水落区 24 / 48 / 72 小时；关则不拉取", "\u{25ce}", |ui| {
             let h = draft.sources.map_wx.precip_hours;
             let label = match h {
                 24 => "24 h",
@@ -2269,7 +2325,7 @@ control_row(ui, "降水预报", "中国降水落区 24 / 48 / 72 小时；关则
                     ui.selectable_value(&mut draft.sources.map_wx.precip_hours, 72, "72 h");
                 });
         });
-                row_divider(ui);
+        row_divider(ui);
         control_row(ui, "雷达透明度", "中国 / 日本 / 台湾雷达共用；0 全透，1 不透明", "\u{25ce}", |ui| {
             ui.add(
                 egui::Slider::new(&mut draft.sources.map_wx.radar_opacity, 0.0..=1.0)
@@ -2285,31 +2341,16 @@ control_row(ui, "降水预报", "中国降水落区 24 / 48 / 72 小时；关则
                     .fixed_decimals(2),
             );
         });
-row_divider(ui);
+        row_divider(ui);
         control_row(ui, "台风路径", "活跃台风路径、风圈与预报线", "\u{25ce}", |ui| {
             toggle(ui, &mut draft.ui.show_typhoons);
         });
-        row_divider(ui);
-        control_row(ui, "活动断层", "实验性；默认关；开启后才加载 GEM/CAFD 迹线", "\u{25ce}", |ui| {
-            toggle(ui, &mut draft.ui.show_faults);
-        });
-        if draft.ui.show_faults {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.add_space(44.0);
-                ui.label(
-                    RichText::new(t("本功能目前仅为实验性功能，尚未得到完全修复，请谨慎使用"))
-                        .size(12.0)
-                        .color(chrome().status_warn),
-                );
-            });
-        }
         row_divider(ui);
         control_row(ui, "晨昏线", "按本机时间绘制夜侧与晨昏分界", "\u{25ce}", |ui| {
             toggle(ui, &mut draft.ui.show_terminator);
         });
         row_divider(ui);
-        control_row(ui, "台风预报源", "地图预报路径所用机构", "\u{25ce}", |ui| {
+        control_row(ui, "台风预报", "地图预报路径所用机构", "\u{25ce}", |ui| {
             egui::ComboBox::from_id_salt("typhoon_fc_agency")
                 .selected_text(t(&draft.ui.typhoon_forecast_agency))
                 .width(120.0)

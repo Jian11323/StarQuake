@@ -59,11 +59,11 @@
 - 接收日本气象厅海啸情报
 - 接收中央台气象预警（侧栏「气象」：图标 / 标题 / 省市区 / 正文 + 地图色点）
 - 展示 NIED 強震モニタ、S-Net、KMA 等测站烈度（地图色点与右上角台网卡片）
-- 地图叠加震中、P/S 波圈（近距 JMA2001，远距 ak135）
-- 暗色矢量底图 / 亮色海洋地形瓦片，可随主题切换
+- 地图叠加震中、P/S 波圈（近距 JMA2001，远距 ak135）与预估烈度/震度分布同心圆（设置可关；示意）
+- 暗色矢量底图 / 亮色海洋地形瓦片，可随主题切换；zoom ≥ 7.5 可见中日省级与国外州/省轮廓
 - 台风路径、风圈与多源预报（可开关）
-- 地图雷达叠加（中国 / 日本 / 台湾可独立开关，设置 → 地图显示；GET）与中国降水落区 24/48/72 小时；雷达/降水透明度可调
-- 地图晨昏线（设置 → 地图显示，默认关）；设置本机经纬度后在右下角显示预估日出与日落
+- 地图雷达叠加（中国 / 日本 / 台湾可独立开关，设置 → 雷达与气象叠加；GET）与中国降水落区 24/48/72 小时；雷达/降水透明度可调
+- 地图晨昏线（设置 → 雷达与气象叠加，默认关）；设置本机经纬度后在右下角显示预估日出与日落
 - 配置本机经纬度（地图选点或按公网 IP 定位）后估算本地 S 波倒计时，并支持音效播报
 - 预警/速报 TTS：本机离线语音包（Windows SAPI）或微软 Edge 在线 Neural TTS
 - 各数据源健康状态：**正常** / **波动** / **异常**
@@ -90,8 +90,7 @@
 - 中国台湾地图：[GeoJSON.cn](https://geojson.cn/)
 - 日本地图：[日本气象厅](https://www.data.jma.go.jp/developer/gis.html)（注意钓鱼岛地区处理）
 - 世界地图：[GeoJSON Maps of the globe](https://geojson-maps.kyd.au/)（注意甄别争议地区）
-- 全球活动断层：[GEM Global Active Faults](https://github.com/GEMScienceTools/gem-global-active-faults)
-- 中国活动断层：[gmt-china/china-geospatial-data](https://github.com/gmt-china/china-geospatial-data)（CAFD）
+- 国外一级行政区（州/省）：[Natural Earth](https://www.naturalearthdata.com/) admin-1（公有领域）
 - 近距走时表：[气象厅 JMA2001](https://www.data.jma.go.jp/eqev/data/bulletin/catalog/appendix/trtime/trt_j.html)
 - 远距走时表：IASPEI ak135
 - SREV 音效（JMA）：[scratch-realtime-earthquake-viewer-page](https://github.com/kotoho7/scratch-realtime-earthquake-viewer-page)
@@ -119,7 +118,7 @@
 - [OPEN EEWCN](https://github.com/OpenEEWCN/eewcn)
 - [GlobalQuake 0.11](https://github.com/OpenEEWCN/eewcn)
 
-第三方素材（音效、走时表、底图矢量、断层、字体、地图标记等）不随代码许可证覆盖，请遵循各自上游许可；SREV 音效为 CC BY-SA 2.0，须署名。列表/图例震度色与 `icon/intensity` 图标一致；中国烈度色对齐 EEWCN；测站点仍用 NIED 計測色带。
+第三方素材（音效、走时表、底图矢量、字体、地图标记等）不随代码许可证覆盖，请遵循各自上游许可；SREV 音效为 CC BY-SA 2.0，须署名。列表/图例震度色与 `icon/intensity` 图标一致；中国烈度色对齐 EEWCN；测站点仍用 NIED 計測色带。
 
 ---
 

@@ -141,9 +141,12 @@ pub struct UiConfig {
     /// 地图右上气象悬浮卡片（不再地图打点）
     #[serde(default = "default_true")]
     pub show_weather: bool,
-    /// 本地测站到时震源推算（不含检知；需足够触发站）
-    #[serde(default = "default_true")]
+    /// 本地测站到时震源推算（功能开发中；设置页禁用，强制关闭）
+    #[serde(default = "default_false")]
     pub show_local_hypo: bool,
+    /// 预警预估烈度/震度分布同心圆（衰减示意）
+    #[serde(default = "default_true")]
+    pub show_intensity_map: bool,
     /// 气象侧栏展示：`list` 列表 / `card` 地图悬浮卡片
     #[serde(default = "default_weather_display_mode")]
     pub weather_display_mode: String,
@@ -156,9 +159,6 @@ pub struct UiConfig {
     /// 地图绘制台风路径 / 风圈 / 预报
     #[serde(default = "default_true")]
     pub show_typhoons: bool,
-    /// 地图绘制活动断层（全球 GEM + 中国 CAFD）
-    #[serde(default = "default_false")]
-    pub show_faults: bool,
     /// 全球晨昏线与夜侧遮罩
     #[serde(default = "default_false")]
     pub show_terminator: bool,
@@ -1108,12 +1108,12 @@ impl Default for AppConfig {
                 show_legend: true,
                 show_volcanoes: true,
                 show_weather: true,
-                show_local_hypo: true,
+                show_local_hypo: false,
+                show_intensity_map: true,
                 weather_display_mode: default_weather_display_mode(),
                 weather_location_filter: String::new(),
                 show_cenc_int: false,
                 show_typhoons: true,
-                show_faults: false,
                 show_terminator: false,
                 typhoon_forecast_agency: default_typhoon_forecast_agency(),
             },

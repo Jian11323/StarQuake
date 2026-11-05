@@ -1914,7 +1914,7 @@ fn split_ring_omitting_zangnan(ring: &[[f32; 2]]) -> Vec<Vec<[f32; 2]>> {
     parts
 }
 
-/// 区划层：仅中日省级（GQ → 要石回退）。
+/// 区划层：中日省级 + 国外一级行政区（美加澳等州/省）。
 fn load_regional_rings(dir: &Path) -> (Vec<RingSet>, usize, usize) {
     let mut regional_fine = Vec::new();
     let mut files = 0usize;
@@ -1959,11 +1959,23 @@ fn load_regional_rings(dir: &Path) -> (Vec<RingSet>, usize, usize) {
     let jp = load_jp_pref_rings(dir, &mut files, &mut skipped);
     regional_fine.extend(jp);
 
+    // 国外省/州（Natural Earth admin-1 精简包；不含中日）
+    let admin1 = dir.join("admin1").join("states_provinces.geojson");
+    if let Some(rings) = try_load_rings(
+        &admin1,
+        &mut files,
+        &mut skipped,
+        "admin1 states/provinces",
+    ) {
+        info!(path = %admin1.display(), rings = rings.len(), "foreign admin1 loaded");
+        regional_fine.extend(rings);
+    }
+
     info!(
         total = regional_fine.len(),
         files,
         skipped,
-        "regional admin rings loaded (provincial only)"
+        "regional admin rings loaded (CN/JP + foreign admin1)"
     );
     (regional_fine, files, skipped)
 }

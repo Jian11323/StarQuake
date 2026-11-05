@@ -28,7 +28,8 @@ show_wave_rings = true
 show_legend = true
 show_volcanoes = true
 show_typhoons = true
-show_faults = false
+show_intensity_map = true
+show_local_hypo = false
 show_terminator = false
 # 全部 | 中国 | 中国台湾 | 日本 | 美国 | 中国香港
 typhoon_forecast_agency = "中国"

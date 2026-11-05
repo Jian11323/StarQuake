@@ -415,7 +415,6 @@ fn run_app_inner(force_soft: bool) -> Result<()> {
         cfg.map.default_lat,
         cfg.map.default_zoom,
         ProjectionMode::parse(&cfg.map.projection),
-        cfg.ui.show_faults,
     );
     shell
         .map
@@ -2269,7 +2268,6 @@ impl StarQuakeApp {
             self.cfg.map.tile_source.clone(),
             Some(self.geodata_dir.as_path()),
             ProjectionMode::parse(&self.cfg.map.projection),
-            self.cfg.ui.show_faults,
         );
         self.shell
             .map

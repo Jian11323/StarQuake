@@ -307,7 +307,7 @@ fn check_config_inventory(resource_root: &Path, cfg: &AppConfig) -> Result<Strin
         ("ui.show_volcanoes", cfg.ui.show_volcanoes),
         ("ui.show_weather", cfg.ui.show_weather),
         ("ui.show_typhoons", cfg.ui.show_typhoons),
-        ("ui.show_faults", cfg.ui.show_faults),
+        ("ui.show_intensity_map", cfg.ui.show_intensity_map),
         ("ui.show_terminator", cfg.ui.show_terminator),
         ("notify.enabled", cfg.notify.enabled),
         ("notify.on_eew", cfg.notify.on_eew),
