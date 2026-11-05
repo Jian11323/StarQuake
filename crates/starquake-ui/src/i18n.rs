@@ -638,12 +638,12 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "换取长期 Token rt_ 并写入用户配置"), "換取長期 Token rt_ 並寫入使用者設定");
         m.insert((Lang::Ja, "换取长期 Token rt_ 并写入用户配置"), "長期トークン rt_ を取得してユーザー設定へ保存");
         m.insert((Lang::En, "换取长期 Token rt_ 并写入用户配置"), "Exchange long-lived token rt_ into user settings");
-        m.insert((Lang::ZhTw, "换票中…"), "換票中…");
-        m.insert((Lang::Ja, "换票中…"), "更新中…");
-        m.insert((Lang::En, "换票中…"), "Exchanging…");
-        m.insert((Lang::ZhTw, "换票并保存"), "換票並儲存");
-        m.insert((Lang::Ja, "换票并保存"), "トークン更新して保存");
-        m.insert((Lang::En, "换票并保存"), "Exchange & save");
+        m.insert((Lang::ZhTw, "登录"), "登入");
+        m.insert((Lang::Ja, "登录"), "ログイン");
+        m.insert((Lang::En, "登录"), "Sign in");
+        m.insert((Lang::ZhTw, "登录中…"), "登入中…");
+        m.insert((Lang::Ja, "登录中…"), "ログイン中…");
+        m.insert((Lang::En, "登录中…"), "Signing in…");
         m.insert((Lang::ZhTw, "接口开关、鉴权与连接状态"), "介面開關、驗證與連線狀態");
         m.insert((Lang::Ja, "接口开关、鉴权与连接状态"), "接続スイッチ・認証・状態");
         m.insert((Lang::En, "接口开关、鉴权与连接状态"), "Toggles, auth, and connection status");

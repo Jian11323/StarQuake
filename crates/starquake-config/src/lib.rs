@@ -885,11 +885,12 @@ impl WolfxSourceConfig {
 /// 速报过滤：源开关与震级阈值分离。
 ///
 /// - `record_enabled`：各机构速报开关（关则整源丢弃）
-/// - `record_mag`：`0` 不过滤；`>0` 最低震级。白名单可绕过震级，不能绕过关闭的源。
-/// - 兼容旧配置：`record_mag = -1` 视为该源关闭，并按 `0` 读阈值。
+/// - `record_mag`：`0` 不过滤；`>0` 最低震级
+/// - 兼容旧配置：`record_mag = -1` 视为该源关闭，并按 `0` 读阈值
+/// - `place_whitelist`：保留字段兼容旧配置，设置页已不再展示
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FiltersConfig {
-    /// 各机构速报开关；缺省：`other` 关，其余开
+    /// 各机构速报开关；缺省仅开 cenc / 省局 / cwa / jma / kma / hko
     #[serde(default)]
     pub record_enabled: HashMap<String, bool>,
     #[serde(default)]
@@ -900,6 +901,7 @@ pub struct FiltersConfig {
 
 impl FiltersConfig {
     /// 该机构速报是否接收（与震级阈值无关）。
+    /// 缺省仅开：cenc / 省局(云贵陕京宁) / cwa / jma / kma / hko。
     pub fn record_source_enabled(&self, key: &str) -> bool {
         if let Some(on) = self.record_enabled.get(key) {
             return *on;
@@ -908,7 +910,18 @@ impl FiltersConfig {
         if self.record_mag.get(key).copied().unwrap_or(0.0) < 0.0 {
             return false;
         }
-        key != "other"
+        matches!(
+            key,
+            "cenc"
+                | "yunnan"
+                | "shanxi"
+                | "beijing"
+                | "ningxia"
+                | "cwa"
+                | "jma"
+                | "kma"
+                | "hko"
+        )
     }
 
     pub fn set_record_source_enabled(&mut self, key: &str, on: bool) {

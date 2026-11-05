@@ -13,27 +13,27 @@ pub const EEW_FILTER_FAMILIES: &[AgencyFamily] = &[
     AgencyFamily::EarlyEst,
 ];
 
-/// 信息事件震级过滤（Jian `/all` 内各地震速报源，对齐 RhythmQuake）。
+/// 信息事件速报源（顺序对齐 Jian `/all` 出站速报序；宁夏局保留）。
+/// 不含 `Other`（设置页已去掉「未适配机构」）。
 pub const RECORD_FILTER_FAMILIES: &[AgencyFamily] = &[
     AgencyFamily::Cenc,
-    AgencyFamily::Usgs,
-    AgencyFamily::Cwa,
-    AgencyFamily::Jma,
-    AgencyFamily::Hko,
-    AgencyFamily::Emsc,
-    AgencyFamily::Kma,
     AgencyFamily::Ningxia,
     AgencyFamily::Yunnan,
     AgencyFamily::Shanxi,
     AgencyFamily::Beijing,
-    AgencyFamily::Gfz,
-    AgencyFamily::Bcsf,
-    AgencyFamily::Usp,
-    AgencyFamily::Ingv,
+    AgencyFamily::Cwa,
+    AgencyFamily::Jma,
+    AgencyFamily::Hko,
     AgencyFamily::Tmd,
     AgencyFamily::Mmd,
     AgencyFamily::Bmkg,
     AgencyFamily::Geonet,
+    AgencyFamily::Usgs,
+    AgencyFamily::Emsc,
+    AgencyFamily::Gfz,
+    AgencyFamily::Bcsf,
+    AgencyFamily::Ingv,
+    AgencyFamily::Usp,
     AgencyFamily::Afad,
     AgencyFamily::Ipma,
     AgencyFamily::Noa,
@@ -45,6 +45,7 @@ pub const RECORD_FILTER_FAMILIES: &[AgencyFamily] = &[
     AgencyFamily::Knmi,
     AgencyFamily::Ncedc,
     AgencyFamily::Lmu,
+    AgencyFamily::Kma,
     AgencyFamily::Koeri,
     AgencyFamily::Gsras,
     AgencyFamily::Csn,
@@ -53,7 +54,6 @@ pub const RECORD_FILTER_FAMILIES: &[AgencyFamily] = &[
     AgencyFamily::Ga,
     AgencyFamily::Igepn,
     AgencyFamily::Peru,
-    AgencyFamily::Other,
 ];
 
 /// 地名后追加的机构括号标签，如 `[JMA]`、`[CN]`、`[CENC]`、`[四川地震局]`。

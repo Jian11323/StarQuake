@@ -1516,18 +1516,17 @@ fn draw_sources(
             "换取长期 Token rt_ 并写入用户配置",
             "\u{25ce}",
             |ui| {
-                let w = (ui.available_width() - 8.0).clamp(200.0, 420.0);
+                let btn_w = 72.0_f32;
+                let gap = 8.0_f32;
+                let w = (ui.available_width() - btn_w - gap - 8.0).clamp(160.0, 360.0);
                 framed_edit(ui, login_key, w);
+                ui.add_space(gap);
+                let label = if auth_busy { "登录中…" } else { "登录" };
+                if glass_btn(ui, label, true).clicked() && !auth_busy {
+                    exchange = true;
+                }
             },
         );
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.add_space(44.0);
-            let label = if auth_busy { "换票中…" } else { "换票并保存" };
-            if glass_btn(ui, label, true).clicked() && !auth_busy {
-                exchange = true;
-            }
-        });
         ui.add_space(6.0);
         if let Some(rt) = draft.sources.jian.refresh_token.as_deref() {
             let short = if rt.len() > 12 {
@@ -1585,8 +1584,6 @@ fn draw_sources(
         ui.add_space(6.0);
         filters_ui::draw_record_source_switches(ui, draft);
     });
-
-    filters_ui::draw_record_mag_filters(ui, draft);
 
     section(ui, "Wolfx", "\u{25ce}", |ui| {
         control_row(ui, "启用 Wolfx", "连接 Wolfx 通道", "\u{26a1}", |ui| {
