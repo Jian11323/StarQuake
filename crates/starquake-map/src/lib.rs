@@ -9,6 +9,7 @@ mod tile_cache;
 mod weather_overlay;
 mod weather_paint;
 mod topojson;
+mod intensity_fill;
 mod tsunami_coast;
 mod vector_basemap;
 
@@ -96,6 +97,7 @@ use starquake_travel::TravelEngine;
 use marker_icons::MarkerIcons;
 use projection::ViewCtx;
 use weather_overlay::WeatherOverlay;
+use intensity_fill::IntensityFill;
 use tsunami_coast::TsunamiCoast;
 use tile_cache::TileCache as Cache;
 use std::sync::Arc;
@@ -131,6 +133,7 @@ pub struct MapViewport {
     cache: Cache,
     vector: VectorBasemap,
     tsunami_coast: TsunamiCoast,
+    intensity_fill: IntensityFill,
     weather_overlay: WeatherOverlay,
     markers: MarkerIcons,
     flight: Option<CameraFlight>,
@@ -169,6 +172,7 @@ impl Default for MapViewport {
             ),
             vector: VectorBasemap::default(),
             tsunami_coast: TsunamiCoast::default(),
+            intensity_fill: IntensityFill::default(),
             weather_overlay: WeatherOverlay::default(),
             markers: MarkerIcons::default(),
             flight: None,
@@ -206,6 +210,7 @@ impl MapViewport {
                     .load_dir(dir, self.projection_mode.is_globe());
             }
             self.tsunami_coast.load_dir(dir);
+            self.intensity_fill.load_dir(dir);
         }
     }
 
@@ -697,7 +702,7 @@ impl MapViewport {
             .paint_radars(ui, &view, radars, radar_opacity);
         WeatherOverlay::paint_precip(ui, &view, precip, precip_opacity);
 
-        // 预估烈度分布（同心圆；参考要石/RhythmQuake 衰减示意，非正式测定）
+        // 预估烈度分布：CEA/省网/CWA 行政区填色；JMA 仅 warnArea 非空时按区绘制
         if show_intensity_map {
             let focus = active.filter(|e| {
                 !e.is_cancel
@@ -707,7 +712,7 @@ impl MapViewport {
                     && (e.latitude.abs() > 0.01 || e.longitude.abs() > 0.01)
             });
             if let Some(ev) = focus {
-                overlay::paint_intensity_distribution(ui, &view, ev);
+                self.intensity_fill.paint(ui, &view, ev);
             }
         }
 

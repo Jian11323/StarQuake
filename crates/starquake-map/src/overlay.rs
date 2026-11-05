@@ -7,7 +7,7 @@ use egui::epaint::{Mesh, Vertex};
 use egui::{Color32, Pos2, Rect, Stroke, TextureHandle, Ui, Vec2};
 use starquake_core::palette::{cn_intensity_rgb, cn_intensity_text_rgb, color_for};
 use starquake_core::{
-    cn_intensity_round, cn_intensity_text, intensity_rings, CencIntEvent, EewReport, EqRecord,
+    cn_intensity_round, cn_intensity_text, CencIntEvent, EewReport, EqRecord,
     LocalHypoEstimate, StationSample, VolcanoNotice, WeatherAlert,
 };
 use starquake_travel::{max_s_wave_spread_km, TravelEngine, Wave};
@@ -1161,52 +1161,6 @@ fn stroke_polyline(painter: &egui::Painter, segs: &[Vec<Pos2>], stroke: Stroke) 
             continue;
         }
         painter.add(egui::Shape::line(pts.clone(), stroke));
-    }
-}
-
-/// 预估烈度/震度分布同心圆（衰减示意；非正式测定）。
-/// 由外到内叠色，对齐要石/RhythmQuake 一类软件的分布示意。
-pub fn paint_intensity_distribution(ui: &mut Ui, view: &ViewCtx, ev: &EewReport) {
-    if !ev.magnitude.is_finite() || ev.magnitude < 3.0 {
-        return;
-    }
-    let mut rings = intensity_rings(ev.intensity_kind, ev.magnitude, ev.depth_km);
-    if rings.is_empty() {
-        return;
-    }
-    // intensity_rings 高→低；绘制需外圈（低档）先画
-    rings.reverse();
-    let Some(epi) = view.project(ev.longitude, ev.latitude) else {
-        return;
-    };
-    let painter = ui.painter_at(view.rect);
-    let max_r = view.rect.width().max(view.rect.height()) * 2.5;
-    for &(level, r_km) in &rings {
-        if r_km < 0.5 {
-            continue;
-        }
-        let rgb = color_for(ev.intensity_kind, level);
-        let fill = Color32::from_rgba_unmultiplied(rgb.r, rgb.g, rgb.b, 48);
-        let stroke = Stroke::new(
-            1.15_f32,
-            Color32::from_rgba_unmultiplied(rgb.r, rgb.g, rgb.b, 150),
-        );
-        if view.mode.is_globe() {
-            let segs = view.circle_segments(ev.longitude, ev.latitude, r_km);
-            for pts in &segs {
-                if pts.len() < 3 {
-                    continue;
-                }
-                painter.add(egui::Shape::convex_polygon(pts.clone(), fill, stroke));
-            }
-        } else {
-            let r_px = projection::km_to_pixels(r_km, ev.latitude, view.zoom);
-            if r_px < 3.0 || r_px > max_r {
-                continue;
-            }
-            painter.circle_filled(epi, r_px, fill);
-            painter.circle_stroke(epi, r_px, stroke);
-        }
     }
 }
 

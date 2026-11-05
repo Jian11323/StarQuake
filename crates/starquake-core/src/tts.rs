@@ -301,6 +301,7 @@ mod tests {
             is_assumption: false,
             is_warn: false,
             final_at_ms: 0,
+            warn_areas: Vec::new(),
         };
         assert!(!should_play_eew_tts(Some(&ev), &ev));
         let mut place_jitter = ev.clone();
@@ -334,6 +335,7 @@ mod tests {
             is_assumption: false,
             is_warn: false,
             final_at_ms: 0,
+            warn_areas: Vec::new(),
         };
         let s = build_eew_tts_script(&ev);
         assert!(s.contains("日本气象厅预报"));

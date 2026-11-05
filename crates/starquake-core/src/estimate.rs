@@ -16,6 +16,33 @@ const RING_EPS_KM: f64 = 1e-3;
 /// 取 5km 下限（与 `calc_jma_instrumental` 的 3km 同量级）。
 const SCEEW_MIN_DIST_KM: f64 = 5.0;
 
+/// 要石 / RhythmQuake 中国烈度连续值（区划填色用）。
+///
+/// `I = mean(CEA(M, dis), CEA(M, hypoDis))`，
+/// `CEA = 1.297·M − 4.368·log10(d+15) + 5.363`。
+pub fn calc_csis_kanameishi(magnitude: f64, depth_km: f64, surface_km: f64) -> f64 {
+    if !magnitude.is_finite() || !surface_km.is_finite() {
+        return 0.0;
+    }
+    if surface_km > 10_000.0 {
+        return 0.0;
+    }
+    let dep = if !depth_km.is_finite() || depth_km < 10.0 {
+        10.0
+    } else {
+        depth_km
+    };
+    let dis = surface_km.max(0.0);
+    let line_dis = hypocentral_km(dep, dis);
+    let fault_len = 10f64.powf((magnitude - 3.821) / 1.86);
+    let hypo_dis = (line_dis - 10.0 - fault_len)
+        .max(dis - fault_len)
+        .max(0.2 * (line_dis - 10.0))
+        .max(0.0);
+    let cea = |d: f64| 1.297 * magnitude - 4.368 * ((d + 15.0).ln() / LN_10) + 5.363;
+    ((cea(dis) + cea(hypo_dis)) * 0.5).max(0.0)
+}
+
 /// 中国烈度（CSIS）连续值：震级 + 震源距（km）。
 ///
 /// 对齐 SCEEW 衰减式：`max(1.92 + 1.63·M − 3.49·log10(R), 0)`。

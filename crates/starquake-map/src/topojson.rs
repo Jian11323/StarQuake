@@ -7,6 +7,15 @@ type PolyRing = Vec<[f32; 2]>;
 type PolyWithHoles = (PolyRing, Vec<PolyRing>);
 type NamedPolyWithHoles = (String, PolyRing, Vec<PolyRing>);
 
+/// 带 name/code 的区划多边形。
+#[derive(Debug, Clone)]
+pub struct NamedRegionPoly {
+    pub name: String,
+    pub code: String,
+    pub exterior: PolyRing,
+    pub holes: Vec<PolyRing>,
+}
+
 #[derive(Deserialize)]
 struct Topology {
     arcs: Vec<Vec<[i64; 2]>>,
@@ -43,6 +52,8 @@ struct TopoGeometry {
 struct TopoProps {
     #[serde(default)]
     name: Option<String>,
+    #[serde(default)]
+    code: Option<String>,
 }
 
 /// 解析要石风格 TopoJSON，返回 `(exterior, holes)[]`，坐标为经纬。
@@ -60,22 +71,42 @@ pub fn load_region_polygons(
 pub fn load_named_region_polygons(
     text: &str,
 ) -> Result<Vec<NamedPolyWithHoles>, String> {
+    Ok(load_named_region_polygons_ex(text)?
+        .into_iter()
+        .map(|p| (p.name, p.exterior, p.holes))
+        .collect())
+}
+
+/// 带 `properties.name` / `code` 的区划多边形。
+pub fn load_named_region_polygons_ex(text: &str) -> Result<Vec<NamedRegionPoly>, String> {
     let topo: Topology = serde_json::from_str(text).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for geom in &topo.objects.region.geometries {
-        let name = geom
-            .properties
-            .as_ref()
-            .and_then(|p| p.name.as_ref())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_default();
+        let (name, code) = match &geom.properties {
+            Some(p) => (
+                p.name
+                    .as_ref()
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default(),
+                p.code
+                    .as_ref()
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_default(),
+            ),
+            None => (String::new(), String::new()),
+        };
         let Some(arcs) = geom.arcs.as_ref() else {
             continue;
         };
         match geom.geom_type.as_str() {
             "Polygon" => {
                 if let Some((exterior, holes)) = polygon_from_arcs(arcs, &topo) {
-                    out.push((name, exterior, holes));
+                    out.push(NamedRegionPoly {
+                        name: name.clone(),
+                        code: code.clone(),
+                        exterior,
+                        holes,
+                    });
                 }
             }
             "MultiPolygon" => {
@@ -84,7 +115,12 @@ pub fn load_named_region_polygons(
                 };
                 for poly in polys {
                     if let Some((exterior, holes)) = polygon_from_arcs(poly, &topo) {
-                        out.push((name.clone(), exterior, holes));
+                        out.push(NamedRegionPoly {
+                            name: name.clone(),
+                            code: code.clone(),
+                            exterior,
+                            holes,
+                        });
                     }
                 }
             }

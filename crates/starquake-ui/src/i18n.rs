@@ -758,9 +758,9 @@ fn table() -> &'static HashMap<(Lang, &'static str), &'static str> {
         m.insert((Lang::ZhTw, "烈度分布图"), "烈度分布圖");
         m.insert((Lang::Ja, "烈度分布图"), "震度分布図");
         m.insert((Lang::En, "烈度分布图"), "Intensity map");
-        m.insert((Lang::ZhTw, "按震级/深度估算的烈度或震度同心圆（示意，非正式测定）"), "按震級/深度估算的烈度或震度同心圓（示意，非正式測定）");
-        m.insert((Lang::Ja, "按震级/深度估算的烈度或震度同心圆（示意，非正式测定）"), "マグニチュード/深さから推定した震度円（参考・非公式）");
-        m.insert((Lang::En, "按震级/深度估算的烈度或震度同心圆（示意，非正式测定）"), "Estimated intensity rings from M/depth (illustrative)");
+        m.insert((Lang::ZhTw, "CEA/省网/CWA 按行政区填色；JMA 仅在有 warnArea 时绘制（示意）"), "CEA/省網/CWA 按行政區填色；JMA 僅在有 warnArea 時繪製（示意）");
+        m.insert((Lang::Ja, "CEA/省网/CWA 按行政区填色；JMA 仅在有 warnArea 时绘制（示意）"), "CEA/省網/CWAは行政区塗り、JMAはwarnAreaがある時のみ（参考）");
+        m.insert((Lang::En, "CEA/省网/CWA 按行政区填色；JMA 仅在有 warnArea 时绘制（示意）"), "Admin-area fill for CEA/CWA; JMA only with warnArea (illustrative)");
         m.insert((Lang::ZhTw, "雷达与气象叠加"), "雷達與氣象疊加");
         m.insert((Lang::Ja, "雷达与气象叠加"), "レーダー・気象オーバーレイ");
         m.insert((Lang::En, "雷达与气象叠加"), "Radar and weather overlays");

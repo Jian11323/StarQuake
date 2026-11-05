@@ -135,6 +135,7 @@ fn ingest_pancakes_gq(tx: &NetTx, action: &str, payload: &Value, min_mag: f64) {
             is_assumption: false,
             is_warn: false,
             final_at_ms: 0,
+            warn_areas: Vec::new(),
         }));
         return;
     }
@@ -200,6 +201,7 @@ fn ingest_pancakes_gq(tx: &NetTx, action: &str, payload: &Value, min_mag: f64) {
         is_assumption: false,
         is_warn: false,
         final_at_ms: 0,
+        warn_areas: Vec::new(),
     }));
 }
 

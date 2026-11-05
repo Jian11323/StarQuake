@@ -144,7 +144,7 @@ pub struct UiConfig {
     /// 本地测站到时震源推算（功能开发中；设置页禁用，强制关闭）
     #[serde(default = "default_false")]
     pub show_local_hypo: bool,
-    /// 预警预估烈度/震度分布同心圆（衰减示意）
+    /// 预警预估烈度/震度分布（行政区填色 / JMA warnArea；示意）
     #[serde(default = "default_true")]
     pub show_intensity_map: bool,
     /// 气象侧栏展示：`list` 列表 / `card` 地图悬浮卡片

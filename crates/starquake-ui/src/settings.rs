@@ -2265,7 +2265,7 @@ fn draw_general(
             toggle(ui, &mut draft.ui.show_weather);
         });
         row_divider(ui);
-        control_row(ui, "烈度分布图", "按震级/深度估算的烈度或震度同心圆（示意，非正式测定）", "\u{25ce}", |ui| {
+        control_row(ui, "烈度分布图", "CEA/省网/CWA 按行政区填色；JMA 仅在有 warnArea 时绘制（示意）", "\u{25ce}", |ui| {
             toggle(ui, &mut draft.ui.show_intensity_map);
         });
         row_divider(ui);

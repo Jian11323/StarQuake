@@ -546,6 +546,7 @@ fn parse_jian_eew(agency: &str, data: &Value) -> Option<EewReport> {
     }
     let is_assumption = eew_is_assumption(data, &place);
     let is_warn = eew_is_warn(data, intensity_level, kind);
+    let warn_areas = parse_warn_areas(data);
     Some(EewReport {
         agency: AgencyId(agency.clone()),
         event_id,
@@ -564,8 +565,70 @@ fn parse_jian_eew(agency: &str, data: &Value) -> Option<EewReport> {
         is_assumption,
         is_warn,
         final_at_ms: 0,
+        warn_areas,
     })
 }
+fn parse_warn_areas(data: &serde_json::Value) -> Vec<starquake_core::EewWarnArea> {
+    let Some(arr) = data
+        .get("warnArea")
+        .or_else(|| data.get("WarnArea"))
+        .or_else(|| data.get("warn_area"))
+        .and_then(|v| v.as_array())
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in arr {
+        let Some(m) = item.as_object() else {
+            continue;
+        };
+        let name = m
+            .get("name")
+            .or_else(|| m.get("Name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let code = m
+            .get("code")
+            .or_else(|| m.get("Code"))
+            .map(|v| match v {
+                serde_json::Value::String(s) => s.trim().to_string(),
+                serde_json::Value::Number(n) => n.to_string(),
+                _ => String::new(),
+            })
+            .unwrap_or_default();
+        let intensity_from = m
+            .get("intensityFrom")
+            .or_else(|| m.get("intensity"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let intensity_to = m
+            .get("intensityTo")
+            .or_else(|| m.get("intensity"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if name.is_empty() && code.is_empty() {
+            continue;
+        }
+        if intensity_from.is_empty() && intensity_to.is_empty() {
+            continue;
+        }
+        out.push(starquake_core::EewWarnArea {
+            name,
+            code,
+            intensity_from,
+            intensity_to,
+        });
+    }
+    out
+}
+
+
 
 
 

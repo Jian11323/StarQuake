@@ -154,6 +154,7 @@ fn emit_wolfx_eew(tx: &NetTx, v: &Value, agency: &str) {
 
     let is_assumption = eew_is_assumption(v, &place);
     let is_warn = eew_is_warn(v, intensity_level, kind);
+    let warn_areas = parse_wolfx_warn_areas(v);
     let _ = tx.send(NetEvent::Eew(EewReport {
         agency: AgencyId(agency.into()),
         event_id,
@@ -172,7 +173,64 @@ fn emit_wolfx_eew(tx: &NetTx, v: &Value, agency: &str) {
         is_assumption,
         is_warn,
         final_at_ms: 0,
+        warn_areas,
     }));
+}
+fn parse_wolfx_warn_areas(v: &serde_json::Value) -> Vec<starquake_core::EewWarnArea> {
+    let Some(arr) = v
+        .get("warnArea")
+        .or_else(|| v.get("WarnArea"))
+        .and_then(|x| x.as_array())
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in arr {
+        let Some(m) = item.as_object() else {
+            continue;
+        };
+        let name = m
+            .get("name")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let code = m
+            .get("code")
+            .map(|x| match x {
+                serde_json::Value::String(s) => s.trim().to_string(),
+                serde_json::Value::Number(n) => n.to_string(),
+                _ => String::new(),
+            })
+            .unwrap_or_default();
+        let intensity_from = m
+            .get("intensityFrom")
+            .or_else(|| m.get("intensity"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let intensity_to = m
+            .get("intensityTo")
+            .or_else(|| m.get("intensity"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if name.is_empty() && code.is_empty() {
+            continue;
+        }
+        if intensity_from.is_empty() && intensity_to.is_empty() {
+            continue;
+        }
+        out.push(starquake_core::EewWarnArea {
+            name,
+            code,
+            intensity_from,
+            intensity_to,
+        });
+    }
+    out
 }
 
 /// Wolfx `cenc_eqlist`（HTTP JSON 或 WS）：对象键为 No1..NoN 或数组。
