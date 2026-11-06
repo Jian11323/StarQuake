@@ -6,16 +6,16 @@
   "notes": "Beta 2.6.1：1、海啸预报沿岸线改为 SREV 实色与线宽，并调整到测站之上、历史震中/波圈之下；2、JMA PLUM 假定震源：地名前置 [PLUM]，顶栏/侧栏/地图不铺震级深度。",
   "installer": {
     "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.6.1/StarQuake_Beta_2.6.1_setup.exe",
-    "sha256": "",
+    "sha256": "4b6e2ac3bc9eb6882c66fa479ee80a00388560dede74e85b3df9ce5422b56101",
     "user_interface": "progress"
   },
   "zip": {
     "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.6.1/StarQuake_Beta_2.6.1_portable.zip",
-    "sha256": ""
+    "sha256": "5384019b5f9d108351251b1efe749b4fbc6452c5d415d7bfc23a78b3a2e58100"
   },
   "linux": {
     "url": "https://gitee.com/jian0786/starquake/releases/download/vBeta-2.6.1/StarQuake_Beta_2.6.1_linux_x86_64.tar.gz",
-    "sha256": ""
+    "sha256": "48530fc69a305557cb21099fa874ab7ee9c3f83ddcdee845d5ac3bbe4d734147"
   },
   "release_notes_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.6.1",
   "html_url": "https://gitee.com/jian0786/starquake/releases/tag/vBeta-2.6.1"
