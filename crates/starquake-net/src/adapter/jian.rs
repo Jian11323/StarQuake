@@ -11,7 +11,7 @@ use crate::bus::{NetEvent, NetTx};
 use crate::time_parse::{format_time_text, parse_origin_ms, parse_time_str};
 
 use super::fields::{
-    eew_is_assumption, eew_is_warn, field_depth_km, field_f64, field_looks_negative,
+    eew_is_assumption, eew_is_plum, eew_is_warn, field_depth_km, field_f64, field_looks_negative,
     field_looks_unknown, fill_record_intensity, flag_true, is_investigating_text,
     json_id_string, json_intensity_raw,
     record_is_auto,
@@ -544,6 +544,7 @@ fn parse_jian_eew(agency: &str, data: &Value) -> Option<EewReport> {
             max_intensity_text = format!("{max_intensity_text}/L{lg}");
         }
     }
+    let is_plum = eew_is_plum(data);
     let is_assumption = eew_is_assumption(data, &place);
     let is_warn = eew_is_warn(data, intensity_level, kind);
     let warn_areas = parse_warn_areas(data);
@@ -563,6 +564,7 @@ fn parse_jian_eew(agency: &str, data: &Value) -> Option<EewReport> {
         is_final: flag_true(data, &["isFinal", "is_final", "final", "isLast", "isLastInfo"]),
         is_cancel,
         is_assumption,
+        is_plum,
         is_warn,
         final_at_ms: 0,
         warn_areas,

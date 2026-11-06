@@ -4,10 +4,10 @@ RequestExecutionLevel admin
 ManifestDPIAware true
 
 !ifndef VERSION
-  !define VERSION "Beta_2.6.0"
+  !define VERSION "Beta_2.6.1"
 !endif
 !ifndef DISPLAY_VERSION
-  !define DISPLAY_VERSION "Beta 2.6.0"
+  !define DISPLAY_VERSION "Beta 2.6.1"
 !endif
 !ifndef DIST_DIR
   !define DIST_DIR "..\dist\StarQuake"

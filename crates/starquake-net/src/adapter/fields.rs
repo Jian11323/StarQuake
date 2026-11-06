@@ -162,8 +162,16 @@ pub(crate) fn fill_record_intensity(
     fill_intensity(kind, magnitude, depth_km, raw)
 }
 
+/// 上游显式 `isPLUM`（JMA PLUM 法假定震源）。
+pub(crate) fn eew_is_plum(data: &Value) -> bool {
+    flag_true(data, &["isPLUM", "isPlum", "is_plum"])
+}
+
 /// Wolfx/JMA：仮定震源 / PLUM / 调查中。
 pub(crate) fn eew_is_assumption(data: &Value, place: &str) -> bool {
+    if eew_is_plum(data) {
+        return true;
+    }
     if flag_true(
         data,
         &[
@@ -171,9 +179,6 @@ pub(crate) fn eew_is_assumption(data: &Value, place: &str) -> bool {
             "is_assumption",
             "assumption",
             "isAssumed",
-            "isPLUM",
-            "isPlum",
-            "is_plum",
         ],
     ) {
         return true;

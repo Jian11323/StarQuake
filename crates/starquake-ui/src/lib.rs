@@ -1568,20 +1568,17 @@ fn draw_event_header(
                 } else {
                     String::new()
                 };
-                // 报数挂在机构后：`地名 (JMA)  #终`
+                // 报数挂在机构后：`[PLUM] 地名 (JMA)  #终`
+                let place = ev.place_display();
                 let title = if ev.is_cancel {
-                    format!("{idx_mark}{} ({agency}) \u{00b7} 取消", ev.place)
+                    format!("{idx_mark}{place} ({agency}) \u{00b7} 取消")
                 } else if let Some(mark) = ev.serial_mark() {
-                    format!("{idx_mark}{} ({agency})  {mark}", ev.place)
+                    format!("{idx_mark}{place} ({agency})  {mark}")
                 } else {
-                    format!("{idx_mark}{} ({agency})", ev.place)
+                    format!("{idx_mark}{place} ({agency})")
                 };
                 let time_line = format_header_time(ev.origin_ms);
-                let mag_line = if ev.is_assumption && ev.magnitude <= 0.0 {
-                    crate::i18n::t("调查中").to_string()
-                } else {
-                    format!("M{:.1}", ev.magnitude)
-                };
+                let mag_line = ev.magnitude_label();
                 let depth_line = ev.depth_label();
                 let stroke = if focused_flags[i] {
                     Stroke::new(1.5_f32, Color32::from_rgb(0x7D, 0xF9, 0xFF))
@@ -1626,21 +1623,23 @@ fn draw_event_header(
                                 ui.add_space(2.0 * zoom);
                                 ui.horizontal(|ui| {
                                     ui.label(
-                                        RichText::new(mag_line)
+                                        RichText::new(&mag_line)
                                             .color(Color32::WHITE)
                                             .strong()
                                             .size(15.0 * zoom),
                                     );
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            ui.label(
-                                                RichText::new(depth_line)
-                                                    .color(Color32::from_rgb(0xDD, 0xDD, 0xEE))
-                                                    .size(14.0 * zoom),
-                                            );
-                                        },
-                                    );
+                                    if !depth_line.is_empty() {
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                ui.label(
+                                                    RichText::new(&depth_line)
+                                                        .color(Color32::from_rgb(0xDD, 0xDD, 0xEE))
+                                                        .size(14.0 * zoom),
+                                                );
+                                            },
+                                        );
+                                    }
                                 });
                             });
                         });
@@ -2889,16 +2888,20 @@ fn draw_sidebar(
                                             tab: SidebarTab::Eew,
                                             index: real_i,
                                         });
-                                    let mut place = place_with_agency(&e.place, &e.agency.0);
+                                    let mut place = place_with_agency(&e.place_display(), &e.agency.0);
                                     if let Some(mark) = e.serial_mark() {
                                         place.push_str("  ");
                                         place.push_str(&mark);
                                     }
                                     let time = format_list_time(e.origin_ms);
-                                    let mag = format!("M{:.1}", e.magnitude);
+                                    let mag = e.magnitude_label();
                                     let depth = e.depth_label();
-                                    // 第二行仅时间/震级/深度；报数已挂在机构后
-                                    let sub = format!("{time}  {mag}  {depth}");
+                                    // 第二行仅时间/震级/深度；报数已挂在机构后；PLUM 不铺震级深度
+                                    let sub = if depth.is_empty() {
+                                        format!("{time}  {mag}")
+                                    } else {
+                                        format!("{time}  {mag}  {depth}")
+                                    };
                                     let (_, _, col, _) = intensity_chip(
                                         e.intensity_kind,
                                         e.intensity_level,

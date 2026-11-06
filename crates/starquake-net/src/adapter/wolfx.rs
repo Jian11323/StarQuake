@@ -9,7 +9,7 @@ use crate::bus::{NetEvent, NetTx};
 use crate::time_parse::{format_time_text, parse_origin_ms, parse_time_str};
 
 use super::fields::{
-    eew_is_assumption, eew_is_warn, field_depth_km, field_f64, field_looks_negative,
+    eew_is_assumption, eew_is_plum, eew_is_warn, field_depth_km, field_f64, field_looks_negative,
     field_looks_unknown, fill_record_intensity, flag_true, is_investigating_text,
     json_id_string, json_intensity_raw, record_is_auto,
 };
@@ -152,6 +152,7 @@ fn emit_wolfx_eew(tx: &NetTx, v: &Value, agency: &str) {
                 .and_then(|x| x.as_str())
                 .is_some_and(|s| s.contains("最終") || s.contains("最终")));
 
+    let is_plum = eew_is_plum(v);
     let is_assumption = eew_is_assumption(v, &place);
     let is_warn = eew_is_warn(v, intensity_level, kind);
     let warn_areas = parse_wolfx_warn_areas(v);
@@ -171,6 +172,7 @@ fn emit_wolfx_eew(tx: &NetTx, v: &Value, agency: &str) {
         is_final,
         is_cancel,
         is_assumption,
+        is_plum,
         is_warn,
         final_at_ms: 0,
         warn_areas,

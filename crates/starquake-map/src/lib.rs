@@ -686,13 +686,6 @@ impl MapViewport {
             }
         }
 
-        // JMA 海啸：按沿岸预报区描边闪烁（不对中日外轮廓整圈描边）
-        if let Some(t) = tsunami {
-            if !t.cancelled && !t.grade.eq_ignore_ascii_case("Cancel") {
-                self.tsunami_coast.paint(ui, &view, &t.areas_list, now_ms);
-            }
-        }
-
         if self.show_terminator {
             weather_paint::paint_terminator(ui, &view, now_ms);
         }
@@ -747,6 +740,12 @@ impl MapViewport {
                 station_q,
                 &mut self.station_cache,
             );
+            // 海啸沿岸：测站之上，历史震中圆 / 波圈之下
+            if let Some(t) = tsunami {
+                if !t.cancelled && !t.grade.eq_ignore_ascii_case("Cancel") {
+                    self.tsunami_coast.paint(ui, &view, &t.areas_list, now_ms);
+                }
+            }
             overlay::paint_records(ui, &view, records, selected_record, icons);
             // 台风跟焦期间也要画，否则飞跃落点常是「空洋面无标记」
             if !typhoons.is_empty() {

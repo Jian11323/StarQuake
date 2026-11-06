@@ -2,7 +2,7 @@
 
 use crate::projection::{self, ViewCtx};
 use egui::{Color32, Stroke, Ui};
-use starquake_core::{TsunamiArea, tsunami_official_rgb};
+use starquake_core::{TsunamiArea, tsunami_official_rgb, tsunami_outline_rgb};
 use serde::Deserialize;
 use std::path::Path;
 use tracing::{info, warn};
@@ -109,15 +109,21 @@ impl TsunamiCoast {
         }
         crate::request_repaint_after_capped(ui.ctx(), until_next_sec.min(1000));
 
-        let mut by_grade: Vec<(String, Color32)> = Vec::new();
+        // 实色不透明（对齐 SREV pen 色表）；先底色再本色，禁止任何 alpha。
+        let mut by_grade: Vec<(String, Color32, Color32, f32)> = Vec::new();
         for a in areas {
             let g = a.grade.as_str();
             if matches!(g, "Cancel" | "") {
                 continue;
             }
             let (r, gch, b) = tsunami_official_rgb(g);
-            let color = Color32::from_rgba_unmultiplied(r, gch, b, 255);
-            by_grade.push((a.name.clone(), color));
+            let (or, og, ob) = tsunami_outline_rgb(g);
+            by_grade.push((
+                a.name.clone(),
+                Color32::from_rgb(or, og, ob),
+                Color32::from_rgb(r, gch, b),
+                stroke_width_for_grade(g),
+            ));
         }
         if by_grade.is_empty() {
             return;
@@ -125,14 +131,16 @@ impl TsunamiCoast {
 
         let painter = ui.painter_at(view.rect);
         let mut shapes = Vec::new();
-        let width = 3.5_f32;
-        for (name, color) in &by_grade {
-            let stroke = Stroke::new(width, *color);
+        for (name, outline, color, width) in &by_grade {
+            // 底色仅略宽一圈（SREV 配对色描边），勿再 +4 撑成粗管
+            let base = Stroke::new(*width + 1.5, *outline);
+            let stroke = Stroke::new(*width, *color);
             for seg in &self.segs {
                 if !name_match(&seg.name, name) {
                     continue;
                 }
                 for line in &seg.lines {
+                    paint_line(&mut shapes, line, view, base);
                     paint_line(&mut shapes, line, view, stroke);
                 }
             }
@@ -140,6 +148,16 @@ impl TsunamiCoast {
         painter.extend(shapes);
     }
 
+}
+
+/// 线宽对齐 eewcn / SREV 观感：注意报 5、警报 8、大海啸 11；预报同注意报档。
+fn stroke_width_for_grade(grade: &str) -> f32 {
+    match grade {
+        "MajorWarning" | "Major" => 11.0,
+        "Warning" => 8.0,
+        "Watch" => 5.0,
+        _ => 5.0, // Forecast
+    }
 }
 
 fn name_match(seg: &str, area: &str) -> bool {
@@ -213,7 +231,7 @@ fn paint_line(
                         points: std::mem::take(&mut pts),
                         closed: false,
                         fill: Color32::TRANSPARENT,
-                        stroke: egui::epaint::PathStroke::new(stroke.width, stroke.color),
+                        stroke: solid_path_stroke(stroke),
                     }
                     .into(),
                 );
@@ -233,7 +251,7 @@ fn paint_line(
                             points: std::mem::take(&mut pts),
                             closed: false,
                             fill: Color32::TRANSPARENT,
-                            stroke: egui::epaint::PathStroke::new(stroke.width, stroke.color),
+                            stroke: solid_path_stroke(stroke),
                         }
                         .into(),
                     );
@@ -251,9 +269,15 @@ fn paint_line(
                 points: pts,
                 closed: false,
                 fill: Color32::TRANSPARENT,
-                stroke: egui::epaint::PathStroke::new(stroke.width, stroke.color),
+                stroke: solid_path_stroke(stroke),
             }
             .into(),
         );
     }
+}
+
+fn solid_path_stroke(stroke: Stroke) -> egui::epaint::PathStroke {
+    // 强制不透明实色，避免 unmultiplied/半透明冲淡
+    let c = stroke.color;
+    egui::epaint::PathStroke::new(stroke.width, Color32::from_rgb(c.r(), c.g(), c.b()))
 }

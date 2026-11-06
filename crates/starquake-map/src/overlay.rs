@@ -252,7 +252,11 @@ fn paint_epicenter_marker(
         painter.text(
             p + Vec2::new(12.0, -20.0),
             egui::Align2::LEFT_BOTTOM,
-            format!("M{:.1} {}", ev.magnitude, ev.place),
+            if ev.is_plum_display() {
+                ev.place_display()
+            } else {
+                format!("M{:.1} {}", ev.magnitude, ev.place)
+            },
             egui::FontId::proportional(13.0),
             Color32::WHITE,
         );

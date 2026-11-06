@@ -211,7 +211,9 @@ pub fn build_eew_tts_script(ev: &EewReport) -> String {
         String::new()
     };
     let place = sanitize_place(&ev.place);
-    let body = if ev.magnitude > 0.0 {
+    let body = if ev.is_plum_display() {
+        format!("{place}发生地震，PLUM法假定震源")
+    } else if ev.magnitude > 0.0 {
         format!("{place}发生{:.1}级地震", ev.magnitude)
     } else {
         format!("{place}发生地震")
@@ -299,6 +301,7 @@ mod tests {
             is_final: false,
             is_cancel: false,
             is_assumption: false,
+            is_plum: false,
             is_warn: false,
             final_at_ms: 0,
             warn_areas: Vec::new(),
@@ -333,6 +336,7 @@ mod tests {
             is_final: false,
             is_cancel: false,
             is_assumption: false,
+            is_plum: false,
             is_warn: false,
             final_at_ms: 0,
             warn_areas: Vec::new(),

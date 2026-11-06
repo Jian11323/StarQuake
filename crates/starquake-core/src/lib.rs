@@ -85,6 +85,9 @@ pub struct EewReport {
     /// 仮定震源 / 调查中（Wolfx `isAssumption` 等）；不驱动本地倒计时
     #[serde(default)]
     pub is_assumption: bool,
+    /// JMA PLUM 法假定震源（上游 `isPLUM`）；Header/侧栏不展示震级深度
+    #[serde(default)]
+    pub is_plum: bool,
     /// 紧急地震速报（警报）（Wolfx `isWarn` 或震度≥5弱）
     #[serde(default)]
     pub is_warn: bool,
@@ -108,12 +111,50 @@ pub fn format_depth_label(agency: &str, depth_km: f64, hypocenter_unknown: bool)
 }
 
 impl EewReport {
-    /// Header / TTS 用深度文案。
+    /// 是否按 PLUM 法假定震源展示（不铺震级/深度）。
+    /// 显式 `isPLUM`，或 JMA 假定震源且震级≤1（对齐 CysTerra / Wolfx）。
+    pub fn is_plum_display(&self) -> bool {
+        if self.is_plum {
+            return true;
+        }
+        agency_family(&self.agency.0) == AgencyFamily::Jma
+            && self.is_assumption
+            && self.magnitude > 0.0
+            && self.magnitude <= 1.0
+    }
+
+    /// 地名行：PLUM 时前置 `[PLUM]`（对齐参考 UI）。
+    pub fn place_display(&self) -> String {
+        if self.is_plum_display() {
+            format!("[PLUM] {}", self.place)
+        } else {
+            self.place.clone()
+        }
+    }
+
+    /// Header / 侧栏震级行：PLUM 假定震源 / 调查中 / M×.×
+    pub fn magnitude_label(&self) -> String {
+        if self.is_plum_display() {
+            return "PLUM\u{6cd5}\u{5047}\u{5b9a}\u{9707}\u{6e90}".into();
+        }
+        if self.is_assumption && self.magnitude <= 0.0 {
+            return "\u{8c03}\u{67e5}\u{4e2d}".into();
+        }
+        format!("M{:.1}", self.magnitude)
+    }
+
+    /// Header / TTS 用深度文案；PLUM / 无震源时返回空串。
     pub fn depth_label(&self) -> String {
+        if self.is_plum_display() {
+            return String::new();
+        }
         let hypo_unknown = self.is_assumption
             && self.latitude.abs() < 0.01
             && self.longitude.abs() < 0.01;
-        format_depth_label(&self.agency.0, self.depth_km, hypo_unknown)
+        if hypo_unknown || (self.is_assumption && self.magnitude <= 0.0) {
+            return String::new();
+        }
+        format_depth_label(&self.agency.0, self.depth_km, false)
     }
 
     /// 侧栏/Header 报数标记：挂在机构括号后。JMA 最终报为 `#终`，否则 `#N`。
@@ -213,6 +254,7 @@ impl EqRecord {
             is_cancel: false,
             // 调查中：不驱动本地倒计时（与 EEW 仮定同源开关）
             is_assumption: self.hypocenter_unknown || self.magnitude_unknown,
+            is_plum: false,
             is_warn: false,
             final_at_ms: 0,
             warn_areas: Vec::new(),
@@ -273,13 +315,23 @@ pub struct TsunamiInfo {
     pub expire_ms: i64,
 }
 
-/// JMA 海啸四档官方色（预报青绿 / 注意报黄 / 警报红 / 大海啸紫）。
+/// JMA 海啸四档色（对齐 SREV `@2 津波警報色`：实色 RGB，无 alpha）。
 pub fn tsunami_official_rgb(grade: &str) -> (u8, u8, u8) {
     match grade {
-        "MajorWarning" | "Major" => (0xC0, 0x00, 0xC0),
-        "Warning" => (0xFF, 0x00, 0x00),
-        "Watch" => (0xFF, 0xFF, 0x00),
-        _ => (0x00, 0xE5, 0xFF), // Forecast 津波予報
+        "MajorWarning" | "Major" => (0xC1, 0x25, 0xED), // #c125ed
+        "Warning" => (0xED, 0x29, 0x1B),                 // #ed291b
+        "Watch" => (0xF1, 0xDE, 0x2F),                   // #f1de2f
+        _ => (0x7C, 0xC3, 0xFF),                         // Forecastrgb(42, 152, 243)
+    }
+}
+
+/// 沿岸描边底色（SREV 同表配对色，实色不透明）。
+pub fn tsunami_outline_rgb(grade: &str) -> (u8, u8, u8) {
+    match grade {
+        "MajorWarning" | "Major" => (0xFD, 0xC9, 0xFF), // #fdc9ff
+        "Warning" => (0xFF, 0xCC, 0xC1),                 // #ffccc1
+        "Watch" => (0x93, 0x70, 0x00),                   // #937000
+        _ => (0x25, 0x54, 0xB7),                         // Forecast #2554b7
     }
 }
 
@@ -800,6 +852,7 @@ impl StationSample {
             is_final: false,
             is_cancel: false,
             is_assumption: false,
+            is_plum: false,
             is_warn: false,
             final_at_ms: 0,
             warn_areas: Vec::new(),
@@ -940,6 +993,7 @@ impl AppSnapshot {
             is_final: false,
             is_cancel: false,
             is_assumption: false,
+            is_plum: false,
             is_warn: true,
             final_at_ms: 0,
             warn_areas: Vec::new(),
@@ -960,6 +1014,7 @@ impl AppSnapshot {
             is_final: false,
             is_cancel: false,
             is_assumption: false,
+            is_plum: false,
             is_warn: false,
             final_at_ms: 0,
             warn_areas: Vec::new(),
@@ -980,6 +1035,7 @@ impl AppSnapshot {
             is_final: false,
             is_cancel: false,
             is_assumption: false,
+            is_plum: false,
             is_warn: false,
             final_at_ms: 0,
             warn_areas: Vec::new(),
@@ -1000,6 +1056,7 @@ impl AppSnapshot {
             is_final: false,
             is_cancel: false,
             is_assumption: false,
+            is_plum: false,
             is_warn: true,
             final_at_ms: 0,
             warn_areas: Vec::new(),
@@ -2266,6 +2323,7 @@ mod eew_dedup_tests {
             is_final: false,
             is_cancel: false,
             is_assumption: false,
+            is_plum: false,
             is_warn: false,
             final_at_ms: 0,
             warn_areas: Vec::new(),

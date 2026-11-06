@@ -367,6 +367,12 @@ use starquake_core::IntensityKind;
             panic!("expected Eew");
         };
         assert!(e.is_assumption);
+        assert!(e.is_plum);
+        assert!(e.is_plum_display());
+        assert!(e.place_display().starts_with("[PLUM] "));
+        assert!(e.place_display().contains(&e.place));
+        assert_eq!(e.magnitude_label(), "PLUM\u{6cd5}\u{5047}\u{5b9a}\u{9707}\u{6e90}");
+        assert!(e.depth_label().is_empty());
         assert_eq!(e.event_id, "202610120001");
     }
 
